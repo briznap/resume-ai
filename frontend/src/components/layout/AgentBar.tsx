@@ -1,33 +1,58 @@
-// Shared agent bar. Step 2 ships the presentational shell with the Design
-// System styling. Wiring (focus → open drawer, send → POST /api/chat) lands in
-// steps 3–4; `onActivate` is the hook the hero/sticky bar will use to open the
-// chat drawer.
+import { useState } from 'react'
+
+// Shared agent input bar. Used in three places — centered in the hero, as the
+// sticky bottom bar, and as the input inside the chat drawer — all driving the
+// same conversation. Styling comes from the `.agent-bar` class (Design System).
 
 interface AgentBarProps {
-  onActivate?: () => void
+  onSubmit: (text: string) => void
+  disabled?: boolean
+  autoFocus?: boolean
+  placeholder?: string
 }
 
-export function AgentBar({ onActivate }: AgentBarProps) {
+export function AgentBar({
+  onSubmit,
+  disabled = false,
+  autoFocus = false,
+  placeholder = "Ask me anything about Brad's background…",
+}: AgentBarProps) {
+  const [value, setValue] = useState('')
+
+  const submit = () => {
+    const text = value.trim()
+    if (!text || disabled) return
+    onSubmit(text)
+    setValue('')
+  }
+
   return (
-    <div className="agent-bar flex w-full max-w-xl items-center gap-3 px-4 py-3">
+    <form
+      className="agent-bar flex w-full max-w-xl items-center gap-3 px-4 py-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
       <SparkleIcon className="h-4 w-4 shrink-0 text-accent-light" />
       <input
         type="text"
-        readOnly
-        onFocus={onActivate}
-        placeholder="Ask me anything about Brad's background…"
+        value={value}
+        autoFocus={autoFocus}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={placeholder}
         aria-label="Ask the resume assistant"
         className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
       />
       <button
-        type="button"
-        onClick={onActivate}
+        type="submit"
+        disabled={disabled || value.trim().length === 0}
         aria-label="Send"
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-accent-light transition-colors hover:bg-white/5"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-accent-light transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <SendIcon className="h-4 w-4" />
       </button>
-    </div>
+    </form>
   )
 }
 

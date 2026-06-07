@@ -25,7 +25,8 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from middleware.rate_limiter import limiter
 from middleware.security_headers import SecurityHeadersMiddleware
-from routers import health, resume
+from routers import agent, health, resume
+from services.agent_service import AgentService
 
 load_dotenv()
 
@@ -56,6 +57,18 @@ async def lifespan(app: FastAPI):
     app.state.resume = _load_resume()
     if app.state.resume is None:
         logger.warning("Starting without resume data; /api/resume will return 503.")
+
+    # Build the agent service once at startup (system prompt from resume.json).
+    # Requires both a loaded resume and an API key; otherwise /api/chat -> 503.
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if app.state.resume and api_key:
+        app.state.agent_service = AgentService(app.state.resume, api_key)
+    else:
+        app.state.agent_service = None
+        logger.warning(
+            "Agent service not configured (missing resume or ANTHROPIC_API_KEY); "
+            "/api/chat will return 503."
+        )
     yield
 
 
@@ -88,3 +101,4 @@ app.add_middleware(SecurityHeadersMiddleware)
 # --- Routers ---
 app.include_router(health.router)
 app.include_router(resume.router)
+app.include_router(agent.router)

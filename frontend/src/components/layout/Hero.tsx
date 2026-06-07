@@ -6,12 +6,14 @@ interface HeroProps {
   resume: Resume
   /** Attached to the agent bar wrapper so the scroll observer can watch it. */
   agentBarRef?: Ref<HTMLDivElement>
+  /** Submit handler for the hero agent bar. */
+  onSubmit: (text: string) => void
 }
 
 // Centered hero that fills the viewport below the 4rem nav. Renders the name,
 // title, subtitle, and hero summary from resume data, with the agent bar
 // centered beneath.
-export function Hero({ resume, agentBarRef }: HeroProps) {
+export function Hero({ resume, agentBarRef, onSubmit }: HeroProps) {
   const { name, heroTitle, heroSubtitle, summary } = resume.personal
 
   return (
@@ -28,7 +30,7 @@ export function Hero({ resume, agentBarRef }: HeroProps) {
       </p>
 
       <div ref={agentBarRef} className="mt-10 flex w-full justify-center">
-        <AgentBar />
+        <AgentBar onSubmit={onSubmit} />
       </div>
     </section>
   )
