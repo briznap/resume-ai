@@ -58,3 +58,91 @@ body {
     background: rgba(255, 255, 255, 0.06);
   }
 }
+
+/* ── Animated blob background ──
+   Fixed full-viewport layer behind all content. Three soft radial-gradient
+   circles in the indigo family, animated with transform: translate() only
+   (no opacity changes → no flicker). Sits behind content via negative z-index. */
+.bg-blobs {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform;
+}
+
+.blob--1 {
+  width: 520px;
+  height: 520px;
+  top: -90px;
+  right: -70px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.12), transparent 70%);
+  animation: blob1 52s ease-in-out infinite;
+}
+
+.blob--2 {
+  width: 460px;
+  height: 460px;
+  bottom: -90px;
+  left: -70px;
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.08), transparent 70%);
+  animation: blob2 64s ease-in-out infinite;
+}
+
+.blob--3 {
+  width: 340px;
+  height: 340px;
+  top: 42%;
+  right: 6%;
+  background: radial-gradient(circle, rgba(67, 56, 202, 0.07), transparent 70%);
+  animation: blob3 76s ease-in-out infinite;
+}
+
+@keyframes blob1 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(-52px, 44px);
+  }
+  66% {
+    transform: translate(36px, -40px);
+  }
+}
+
+@keyframes blob2 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(48px, -36px);
+  }
+  66% {
+    transform: translate(-44px, 50px);
+  }
+}
+
+@keyframes blob3 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-46px, -54px);
+  }
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .blob {
+    animation: none;
+  }
+}

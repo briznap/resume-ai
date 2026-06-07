@@ -1,34 +1,45 @@
-import type { ReactNode } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, type ReactNode } from 'react'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Nav } from './components/layout/Nav'
-import { Hero } from './components/layout/Hero'
-import { AgentBar } from './components/layout/AgentBar'
 import { AgentDrawer } from './components/agent/AgentDrawer'
-import { Experience } from './components/sections/Experience'
-import { Skills } from './components/sections/Skills'
-import { Projects } from './components/sections/Projects'
-import { Education } from './components/sections/Education'
-import { UnderTheHood } from './components/sections/UnderTheHood'
 import { useResume } from './hooks/useResume'
-import { useChat } from './hooks/useChat'
-import { useHeroIntersection } from './hooks/useHeroIntersection'
+import { useChat, type UseChatResult } from './hooks/useChat'
 
-// Sticky nav height (h-16 = 4rem). Used to inset the hero-bar observer so the
-// bottom bar fades in exactly as the hero bar disappears behind the nav.
-const NAV_HEIGHT = 64
+// Context handed to route pages via <Outlet> so they share one conversation.
+export type AppOutletContext = UseChatResult
 
+// Root layout shared by every route: animated background, nav, the chat drawer,
+// and the shared chat state. Pages render into <Outlet> and read chat via
+// useOutletContext<AppOutletContext>().
 export default function App() {
   const { data, loading, error } = useResume()
-  // Hooks must run unconditionally, before the early returns below.
-  const { ref: heroBarRef, hasExited } = useHeroIntersection<HTMLDivElement>({
-    topOffset: NAV_HEIGHT,
-  })
   const chat = useChat()
+  const location = useLocation()
+
+  // Bug 1: On navigation, scroll to top — unless there's a hash, in which case
+  // scroll the target section into view instead. The 50ms timeout lets the page
+  // render first; `data` is a dependency so that after a full reload (e.g. a
+  // "/#experience" link from another page), the effect re-runs once the resume
+  // has loaded and the section actually exists in the DOM.
+  useEffect(() => {
+    if (location.hash) {
+      const id = location.hash.slice(1)
+      const timer = setTimeout(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+  }, [location.pathname, location.hash, data])
+
+  // Bug 2a: close the chat drawer whenever the route changes.
+  useEffect(() => {
+    chat.close()
+  }, [location.pathname, chat.close])
 
   if (loading) {
     return <FullScreenMessage>Loading…</FullScreenMessage>
   }
-
   if (error || !data) {
     return (
       <FullScreenMessage>
@@ -39,34 +50,16 @@ export default function App() {
 
   return (
     <>
-      <Nav resume={data} />
-      <main className="pb-20">
-        <Hero resume={data} agentBarRef={heroBarRef} onSubmit={chat.send} />
-        <div className="section-separator" />
-        <Experience />
-        <Skills />
-        <Projects />
-        <Education />
-        <UnderTheHood />
-      </main>
+      {/* Animated background — sits behind all content (see index.css). */}
+      <div className="bg-blobs" aria-hidden="true">
+        <div className="blob blob--1" />
+        <div className="blob blob--2" />
+        <div className="blob blob--3" />
+      </div>
 
-      {/* Sticky bottom AgentBar — appears once the hero bar exits the top, but
-          not while the drawer is open (the drawer has its own input). */}
-      <AnimatePresence>
-        {hasExited && !chat.isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4"
-          >
-            <div className="pointer-events-auto flex w-full justify-center">
-              <AgentBar onSubmit={chat.send} />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <Nav resume={data} />
+
+      <Outlet context={chat satisfies AppOutletContext} />
 
       <AgentDrawer
         open={chat.isOpen}

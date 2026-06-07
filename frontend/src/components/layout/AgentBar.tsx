@@ -9,6 +9,10 @@ interface AgentBarProps {
   disabled?: boolean
   autoFocus?: boolean
   placeholder?: string
+  /** If provided, the sparkle icon becomes a button that opens the drawer. */
+  onOpen?: () => void
+  /** When > 0, a subtle pill shows the conversation length. */
+  messageCount?: number
 }
 
 export function AgentBar({
@@ -16,6 +20,8 @@ export function AgentBar({
   disabled = false,
   autoFocus = false,
   placeholder = "Ask me anything about Brad's background…",
+  onOpen,
+  messageCount = 0,
 }: AgentBarProps) {
   const [value, setValue] = useState('')
 
@@ -28,13 +34,27 @@ export function AgentBar({
 
   return (
     <form
-      className="agent-bar flex w-full max-w-xl items-center gap-3 px-4 py-3"
+      className="agent-bar flex min-h-[48px] w-full max-w-xl items-center gap-3 px-4 py-2.5"
       onSubmit={(e) => {
         e.preventDefault()
         submit()
       }}
     >
-      <SparkleIcon className="h-4 w-4 shrink-0 text-accent-light" />
+      {/* Left side: opens the conversation drawer when onOpen is provided
+          (sticky bar), otherwise a plain decorative icon (hero / drawer input). */}
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="Open conversation"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-accent-light transition-colors hover:bg-white/5"
+        >
+          <SparkleIcon className="h-5 w-5" />
+        </button>
+      ) : (
+        <SparkleIcon className="h-5 w-5 shrink-0 text-accent-light" />
+      )}
+
       <input
         type="text"
         value={value}
@@ -44,6 +64,13 @@ export function AgentBar({
         aria-label="Ask the resume assistant"
         className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
       />
+
+      {messageCount > 0 && (
+        <span className="shrink-0 rounded-md border border-line bg-bg px-2 py-1 text-xs text-text-secondary">
+          {messageCount} message{messageCount === 1 ? '' : 's'}
+        </span>
+      )}
+
       <button
         type="submit"
         disabled={disabled || value.trim().length === 0}

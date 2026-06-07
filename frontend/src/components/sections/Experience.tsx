@@ -1,4 +1,5 @@
 import { useResume } from '../../hooks/useResume'
+import { Card } from '../ui/Card'
 import { SectionHeader } from '../ui/SectionHeader'
 import type { ExperienceItem } from '../../types/resume'
 
@@ -46,9 +47,9 @@ export function Experience() {
               <p className="mt-1 text-base text-text-secondary">{group.companyDescription}</p>
             )}
 
-            <div className="mt-4 space-y-6 border-l border-line pl-5">
+            <div className="mt-4 space-y-3">
               {group.roles.map((role) => (
-                <div key={role.id}>
+                <Card key={role.id}>
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <h4 className="text-[17px] font-medium text-text-primary">{role.title}</h4>
                     <span className="text-sm text-text-secondary">{role.period.display}</span>
@@ -56,7 +57,7 @@ export function Experience() {
                   {role.company !== group.company && (
                     <p className="mt-0.5 text-sm text-text-tertiary">{role.company}</p>
                   )}
-                  <ul className="mt-2.5 space-y-2">
+                  <ul className="mt-3 space-y-2">
                     {role.bullets.map((bullet, i) => (
                       <li key={i} className="flex gap-2.5 text-base leading-relaxed text-text-secondary">
                         <span className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-text-tertiary" />
@@ -64,7 +65,7 @@ export function Experience() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </Card>
               ))}
             </div>
           </div>

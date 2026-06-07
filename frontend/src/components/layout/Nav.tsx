@@ -1,15 +1,25 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { FaGithub, FaLinkedin } from 'react-icons/fa'
 import type { Resume } from '../../types/resume'
 
-// Section anchors for the in-page nav.
-const NAV_LINKS = [
-  { label: 'Experience', href: '#experience' },
-  { label: 'Skills', href: '#skills' },
-  { label: 'Projects', href: '#projects' },
-  { label: 'Education', href: '#education' },
-  { label: 'Under the Hood', href: '#under-the-hood' },
+// In-page section anchors. They point at "/#id" so they work from any route —
+// on the home page the browser scrolls in place; from a subpage they navigate
+// home and then jump to the section.
+const SECTION_LINKS = [
+  { label: 'Experience', href: '/#experience' },
+  { label: 'Skills', href: '/#skills' },
+  { label: 'Projects', href: '/#projects' },
+  { label: 'Education', href: '/#education' },
 ]
+
+// Standalone routes — client-side navigation via React Router.
+const ROUTE_LINKS = [
+  { label: 'Under the Hood', to: '/under-the-hood' },
+  { label: 'About', to: '/about' },
+]
+
+const linkClass = 'text-sm text-text-secondary transition-colors hover:text-text-primary'
 
 export function Nav({ resume }: { resume: Resume }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -25,6 +35,8 @@ export function Nav({ resume }: { resume: Resume }) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  const closeMenu = () => setMenuOpen(false)
+
   return (
     <header
       className={`sticky top-0 z-50 border-b bg-bg transition-colors duration-200 ${
@@ -32,21 +44,22 @@ export function Nav({ resume }: { resume: Resume }) {
       }`}
     >
       <nav className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
-        <a href="#top" className="text-[17px] font-medium text-text-primary">
+        <Link to="/" className="text-[17px] font-medium text-text-primary">
           {name}
-        </a>
+        </Link>
 
         <div className="flex items-center gap-4 sm:gap-6">
-          {/* Section links — desktop only (hamburger on mobile) */}
+          {/* Section + route links — desktop only (hamburger on mobile) */}
           <div className="hidden items-center gap-7 md:flex">
-            {NAV_LINKS.map((link) => (
-              <a
-                key={link.href}
-                href={link.href}
-                className="text-sm text-text-secondary transition-colors hover:text-text-primary"
-              >
+            {SECTION_LINKS.map((link) => (
+              <a key={link.href} href={link.href} className={linkClass}>
                 {link.label}
               </a>
+            ))}
+            {ROUTE_LINKS.map((link) => (
+              <Link key={link.to} to={link.to} className={linkClass}>
+                {link.label}
+              </Link>
             ))}
           </div>
 
@@ -91,15 +104,25 @@ export function Nav({ resume }: { resume: Resume }) {
       {menuOpen && (
         <div className="border-t border-line bg-bg px-6 py-3 md:hidden">
           <div className="flex flex-col gap-1">
-            {NAV_LINKS.map((link) => (
+            {SECTION_LINKS.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                onClick={() => setMenuOpen(false)}
+                onClick={closeMenu}
                 className="py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
               >
                 {link.label}
               </a>
+            ))}
+            {ROUTE_LINKS.map((link) => (
+              <Link
+                key={link.to}
+                to={link.to}
+                onClick={closeMenu}
+                className="py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+              >
+                {link.label}
+              </Link>
             ))}
           </div>
         </div>
