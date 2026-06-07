@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Resume } from '../../types/resume'
 
 // Section anchors. The target sections themselves arrive in step 5; the hrefs
@@ -12,12 +12,24 @@ const NAV_LINKS = [
 
 export function Nav({ resume }: { resume: Resume }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
   const { name, social } = resume.personal
 
-  // Note: per the scroll spec, the nav has no bottom border at the top of the
-  // page; the border fades in on scroll. That transition is wired in step 3.
+  // Nav has no bottom border at the top of the page; once content scrolls under
+  // it, a border fades in via CSS transition (CLAUDE.md → Scroll Behavior #4).
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4)
+    onScroll() // set initial state (e.g. on reload mid-page)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   return (
-    <header className="sticky top-0 z-50 bg-bg">
+    <header
+      className={`sticky top-0 z-50 border-b bg-bg transition-colors duration-200 ${
+        scrolled ? 'border-line' : 'border-transparent'
+      }`}
+    >
       <nav className="mx-auto flex h-16 max-w-3xl items-center justify-between px-6">
         <a href="#top" className="text-[17px] font-medium text-text-primary">
           {name}

@@ -1,10 +1,17 @@
+import type { Ref } from 'react'
 import type { Resume } from '../../types/resume'
 import { AgentBar } from './AgentBar'
+
+interface HeroProps {
+  resume: Resume
+  /** Attached to the agent bar wrapper so the scroll observer can watch it. */
+  agentBarRef?: Ref<HTMLDivElement>
+}
 
 // Centered hero that fills the viewport below the 4rem nav. Renders the name,
 // title, subtitle, and hero summary from resume data, with the agent bar
 // centered beneath.
-export function Hero({ resume }: { resume: Resume }) {
+export function Hero({ resume, agentBarRef }: HeroProps) {
   const { name, heroTitle, heroSubtitle, summary } = resume.personal
 
   return (
@@ -20,7 +27,7 @@ export function Hero({ resume }: { resume: Resume }) {
         {summary.hero}
       </p>
 
-      <div className="mt-10 flex w-full justify-center">
+      <div ref={agentBarRef} className="mt-10 flex w-full justify-center">
         <AgentBar />
       </div>
     </section>
