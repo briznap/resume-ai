@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "version": "1.0",
+    "lastUpdated": "YYYY-MM-DD",
+    "note": "Copy this file to resume.json and fill in your real data. resume.json is gitignored."
+  },
+
+  "personal": {
+    "name": "Your Name",
+    "heroTitle": "Your Professional Title",
+    "heroSubtitle": "Focus Area · Specialty · Specialty",
+    "location": "City, State",
+    "contact": {
+      "email": "you@email.com",
+      "phone": "(000) 000-0000"
+    },
+    "social": {
+      "github": "https://github.com/your-username",
+      "linkedin": "https://linkedin.com/in/your-profile",
+      "repoUrl": "https://github.com/your-username/interactive-resume"
+    },
+    "summary": {
+      "hero": "2-3 sentence version of your summary for the hero section. Punchy, positioning-focused.",
+      "full": "Full professional summary paragraph used in the AI agent context and the resume content section."
+    }
+  },
+
+  "skills": [
+    {
+      "id": "category-id",
+      "category": "Category Display Name",
+      "featured": true,
+      "items": ["Skill 1", "Skill 2", "Skill 3"]
+    }
+  ],
+
+  "experience": [
+    {
+      "id": "unique-job-id",
+      "company": "Company Name",
+      "companyDescription": "One sentence describing what the company does",
+      "companyGroup": "group-key-for-multi-role-companies",
+      "title": "Your Title",
+      "period": {
+        "start": "Month Year",
+        "end": "Month Year",
+        "display": "Mon YYYY – Mon YYYY"
+      },
+      "current": false,
+      "bullets": [
+        "Achievement or responsibility, written with impact and specifics.",
+        "Second bullet. Include metrics where possible."
+      ]
+    }
+  ],
+
+  "projects": [
+    {
+      "id": "project-id",
+      "title": "Project Name",
+      "stack": ["Technology 1", "Technology 2"],
+      "description": "One sentence description for card display.",
+      "bullets": [
+        "Detailed bullet about what was built or accomplished.",
+        "Second detail bullet."
+      ]
+    }
+  ],
+
+  "education": [
+    {
+      "id": "degree-id",
+      "degree": "Degree Name",
+      "institution": "University Name",
+      "year": "YYYY",
+      "notes": "Emphasis, GPA, relevant details"
+    }
+  ]
+}

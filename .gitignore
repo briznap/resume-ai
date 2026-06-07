@@ -1,0 +1,47 @@
+# ── Resume data (contains personal contact info — never commit) ──
+resume.json
+
+# ── Backend secrets ──
+backend/.env
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / Frontend ──
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+frontend/.vite/
+
+# ── Docker ──
+.docker/
+
+# ── OS ──
+.DS_Store
+.DS_Store?
+Thumbs.db
+desktop.ini
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
