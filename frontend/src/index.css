@@ -18,6 +18,7 @@
 
 html {
   color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -25,14 +26,16 @@ body {
   background: var(--color-bg);
   color: var(--color-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 @layer components {
-  /* Section header style — 11px, 500, uppercase, tracked */
+  /* Section header style — 13px, 500, uppercase, tracked, secondary color */
   .section-header {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;

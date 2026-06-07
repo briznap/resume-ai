@@ -4,6 +4,11 @@ import { Nav } from './components/layout/Nav'
 import { Hero } from './components/layout/Hero'
 import { AgentBar } from './components/layout/AgentBar'
 import { AgentDrawer } from './components/agent/AgentDrawer'
+import { Experience } from './components/sections/Experience'
+import { Skills } from './components/sections/Skills'
+import { Projects } from './components/sections/Projects'
+import { Education } from './components/sections/Education'
+import { UnderTheHood } from './components/sections/UnderTheHood'
 import { useResume } from './hooks/useResume'
 import { useChat } from './hooks/useChat'
 import { useHeroIntersection } from './hooks/useHeroIntersection'
@@ -35,11 +40,14 @@ export default function App() {
   return (
     <>
       <Nav resume={data} />
-      <main>
+      <main className="pb-20">
         <Hero resume={data} agentBarRef={heroBarRef} onSubmit={chat.send} />
         <div className="section-separator" />
-        {/* Content sections (Experience, Skills, Projects, Education,
-            UnderTheHood) are added in step 5. */}
+        <Experience />
+        <Skills />
+        <Projects />
+        <Education />
+        <UnderTheHood />
       </main>
 
       {/* Sticky bottom AgentBar — appears once the hero bar exits the top, but

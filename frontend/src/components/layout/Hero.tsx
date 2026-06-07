@@ -19,17 +19,19 @@ export function Hero({ resume, agentBarRef, onSubmit }: HeroProps) {
   return (
     <section
       id="top"
-      className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-6 text-center"
+      className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-6 py-28 text-center"
     >
-      <h1 className="text-[28px] font-medium text-text-primary">{name}</h1>
-      <p className="mt-2 text-base text-text-primary">{heroTitle}</p>
+      <h1 className="text-[38px] font-medium leading-tight tracking-tight text-text-primary">
+        {name}
+      </h1>
+      <p className="mt-3 text-[15px] text-text-primary">{heroTitle}</p>
       <p className="mt-1 text-sm text-text-secondary">{heroSubtitle}</p>
 
-      <p className="mt-6 max-w-xl text-[15px] leading-relaxed text-text-secondary">
+      <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-text-secondary">
         {summary.hero}
       </p>
 
-      <div ref={agentBarRef} className="mt-10 flex w-full justify-center">
+      <div ref={agentBarRef} className="mt-12 flex w-full justify-center">
         <AgentBar onSubmit={onSubmit} />
       </div>
     </section>
