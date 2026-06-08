@@ -1,0 +1,44 @@
+# Production stack: Nginx-served frontend + FastAPI backend on an internal
+# network. Neither service publishes ports — the frontend is fronted by Pangolin
+# in production, and the backend is only reachable via the frontend's /api proxy.
+#
+# Paths: build contexts are the repo root (..); volume/env paths are relative to
+# this file's directory (docker/), hence the ../ prefixes.
+
+services:
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    # Publish on localhost only — Pangolin (on the host) proxies to this port.
+    # Not bound to 0.0.0.0, so it is not reachable publicly.
+    ports:
+      - "127.0.0.1:8181:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+    # Pin the in-container file paths. `environment` overrides any values in
+    # env_file, so a local-dev RESUME_PATH/AGENT_CONTEXT_PATH (e.g. ../) in
+    # .env won't break the container, where the volumes mount at /app/...
+    environment:
+      RESUME_PATH: /app/resume.json
+      AGENT_CONTEXT_PATH: /app/agent-context.md
+    volumes:
+      - ../resume.json:/app/resume.json:ro
+      - ../agent-context.md:/app/agent-context.md:ro
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

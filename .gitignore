@@ -1,5 +1,6 @@
 # ── Resume data (contains personal contact info — never commit) ──
 resume.json
+agent-context.md
 
 # ── Backend secrets ──
 backend/.env
