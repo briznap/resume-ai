@@ -80,9 +80,15 @@ export async function checkSession(): Promise<SessionInfo | null> {
   return (await res.json()) as SessionInfo
 }
 
-/** Request a magic link. The backend always responds 200 (enumeration-safe);
- *  this resolves on success and rejects only on a network/server failure. */
-export async function requestMagicLink(email: string): Promise<void> {
+export interface AccessResult {
+  ok: boolean
+  /** HTTP status; 0 on network error. */
+  status: number
+}
+
+/** Request access. 200 → authenticated (session cookie set); 403 → not on the
+ *  allowlist. Returns the status so the caller can branch. */
+export async function requestAccess(email: string): Promise<AccessResult> {
   let res: Response
   try {
     res = await fetch(`${API_BASE}/api/auth/request`, {
@@ -92,9 +98,7 @@ export async function requestMagicLink(email: string): Promise<void> {
       credentials: 'include',
     })
   } catch {
-    throw new Error('Network error')
+    return { ok: false, status: 0 }
   }
-  if (!res.ok) {
-    throw new Error(`Request failed with status ${res.status}`)
-  }
+  return { ok: res.ok, status: res.status }
 }
