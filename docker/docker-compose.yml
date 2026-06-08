@@ -13,12 +13,11 @@ services:
     restart: unless-stopped
     # Publish on localhost only — Pangolin (on the host) proxies to this port.
     # Not bound to 0.0.0.0, so it is not reachable publicly.
-    ports:
-      - "127.0.0.1:8181:80"
     depends_on:
       - backend
     networks:
       - app-network
+      - pangolin
 
   backend:
     build:
@@ -42,3 +41,5 @@ services:
 networks:
   app-network:
     driver: bridge
+  pangolin:
+    external: true

@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AgentBar } from '../layout/AgentBar'
 import { AgentMessage } from './AgentMessage'
+import { SUGGESTED_PROMPTS } from '../../lib/prompts'
 import type { ChatMessage } from '../../types/chat'
 
 interface AgentDrawerProps {
@@ -17,6 +18,9 @@ interface AgentDrawerProps {
 // out independently when `open` toggles.
 export function AgentDrawer({ open, messages, isLoading, onClose, onSubmit }: AgentDrawerProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Draft text for the drawer's input — lets suggested-prompt chips prefill it
+  // (without auto-submitting) by passing a controlled value to AgentBar.
+  const [draft, setDraft] = useState('')
 
   // Keep the latest message in view as the conversation grows / while typing.
   useEffect(() => {
@@ -75,20 +79,50 @@ export function AgentDrawer({ open, messages, isLoading, onClose, onSubmit }: Ag
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+              {messages.length === 0 && !isLoading && <SuggestedPrompts onPick={setDraft} />}
               {messages.map((message) => (
                 <AgentMessage key={message.id} message={message} />
               ))}
               {isLoading && <TypingIndicator />}
             </div>
 
-            {/* Input */}
+            {/* Input — controlled so chips can prefill; typewriter paused here. */}
             <div className="border-t border-line p-3">
-              <AgentBar onSubmit={onSubmit} disabled={isLoading} autoFocus />
+              <AgentBar
+                onSubmit={onSubmit}
+                disabled={isLoading}
+                autoFocus
+                value={draft}
+                onValueChange={setDraft}
+                animatePlaceholder={false}
+              />
             </div>
           </div>
         </motion.div>,
       ]}
     </AnimatePresence>
+  )
+}
+
+// Shown only before the first message. Clicking a chip prefills the input
+// (does not auto-submit) so the user can edit before sending.
+function SuggestedPrompts({ onPick }: { onPick: (text: string) => void }) {
+  return (
+    <div>
+      <p className="section-header mb-3">Try asking</p>
+      <div className="flex flex-wrap gap-2">
+        {SUGGESTED_PROMPTS.map((prompt) => (
+          <button
+            key={prompt}
+            type="button"
+            onClick={() => onPick(prompt)}
+            className="rounded-md border border-line bg-bg px-3 py-1.5 text-left text-xs text-text-secondary transition-colors hover:border-line-strong hover:text-text-primary"
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 

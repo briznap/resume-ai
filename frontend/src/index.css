@@ -21,6 +21,22 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Blinking cursor for the typewriter placeholder (1s step cycle). */
+@keyframes caret-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.type-cursor {
+  animation: caret-blink 1s step-end infinite;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);

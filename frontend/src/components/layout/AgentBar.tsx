@@ -1,18 +1,29 @@
 import { useState } from 'react'
+import { useTypingPlaceholder } from '../../hooks/useTypingPlaceholder'
+import { SUGGESTED_PROMPTS } from '../../lib/prompts'
 
 // Shared agent input bar. Used in three places — centered in the hero, as the
 // sticky bottom bar, and as the input inside the chat drawer — all driving the
 // same conversation. Styling comes from the `.agent-bar` class (Design System).
 
+// Stable empty array so passing "no animation" doesn't churn the hook effect.
+const NO_PROMPTS: string[] = []
+
 interface AgentBarProps {
   onSubmit: (text: string) => void
   disabled?: boolean
   autoFocus?: boolean
+  /** Placeholder shown when focused / typing (the typewriter overlay is hidden then). */
   placeholder?: string
   /** If provided, the sparkle icon becomes a button that opens the drawer. */
   onOpen?: () => void
   /** When > 0, a subtle pill shows the conversation length. */
   messageCount?: number
+  /** Controlled input value (used by the drawer so chips can prefill it). */
+  value?: string
+  onValueChange?: (value: string) => void
+  /** Run the cycling typewriter placeholder (default true; drawer passes false). */
+  animatePlaceholder?: boolean
 }
 
 export function AgentBar({
@@ -22,14 +33,31 @@ export function AgentBar({
   placeholder = "Ask me anything about Brad's background…",
   onOpen,
   messageCount = 0,
+  value,
+  onValueChange,
+  animatePlaceholder = true,
 }: AgentBarProps) {
-  const [value, setValue] = useState('')
+  const [internalValue, setInternalValue] = useState('')
+  const [focused, setFocused] = useState(false)
+
+  const isControlled = value !== undefined && onValueChange !== undefined
+  const text = isControlled ? value : internalValue
+  const setText = (next: string) => {
+    if (isControlled) onValueChange(next)
+    else setInternalValue(next)
+  }
+
+  // Typewriter overlay — only when animating, the input is empty, and unfocused.
+  const { text: typed, showCursor } = useTypingPlaceholder(
+    animatePlaceholder ? SUGGESTED_PROMPTS : NO_PROMPTS,
+  )
+  const overlayVisible = animatePlaceholder && !text && !focused
 
   const submit = () => {
-    const text = value.trim()
-    if (!text || disabled) return
-    onSubmit(text)
-    setValue('')
+    const trimmed = text.trim()
+    if (!trimmed || disabled) return
+    onSubmit(trimmed)
+    setText('')
   }
 
   return (
@@ -40,14 +68,15 @@ export function AgentBar({
         submit()
       }}
     >
-      {/* Left side: opens the conversation drawer when onOpen is provided
-          (sticky bar), otherwise a plain decorative icon (hero / drawer input). */}
+      {/* Left: opens the conversation drawer when onOpen is provided (hero +
+          sticky bars), otherwise a plain decorative icon (drawer input). */}
       {onOpen ? (
         <button
           type="button"
           onClick={onOpen}
+          title="Open conversation"
           aria-label="Open conversation"
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-accent-light transition-colors hover:bg-white/5"
+          className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-full text-accent-light transition-colors hover:bg-[rgba(99,102,241,0.18)]"
         >
           <SparkleIcon className="h-5 w-5" />
         </button>
@@ -55,15 +84,28 @@ export function AgentBar({
         <SparkleIcon className="h-5 w-5 shrink-0 text-accent-light" />
       )}
 
-      <input
-        type="text"
-        value={value}
-        autoFocus={autoFocus}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={placeholder}
-        aria-label="Ask the resume assistant"
-        className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
-      />
+      <div className="relative flex min-w-0 flex-1 items-center">
+        {overlayVisible && (
+          <div
+            className="pointer-events-none absolute inset-0 z-0 flex items-center overflow-hidden whitespace-nowrap text-sm text-text-secondary"
+            aria-hidden="true"
+          >
+            <span>{typed}</span>
+            {showCursor && <span className="type-cursor">|</span>}
+          </div>
+        )}
+        <input
+          type="text"
+          value={text}
+          autoFocus={autoFocus}
+          onChange={(e) => setText(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={focused ? placeholder : ''}
+          aria-label="Ask the resume assistant"
+          className="relative z-10 w-full min-w-0 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
+        />
+      </div>
 
       {messageCount > 0 && (
         <span className="shrink-0 rounded-md border border-line bg-bg px-2 py-1 text-xs text-text-secondary">
@@ -73,7 +115,7 @@ export function AgentBar({
 
       <button
         type="submit"
-        disabled={disabled || value.trim().length === 0}
+        disabled={disabled || text.trim().length === 0}
         aria-label="Send"
         className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-accent-light transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
       >

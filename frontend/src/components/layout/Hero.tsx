@@ -8,12 +8,14 @@ interface HeroProps {
   agentBarRef?: Ref<HTMLDivElement>
   /** Submit handler for the hero agent bar. */
   onSubmit: (text: string) => void
+  /** Opens the chat drawer (sparkle icon) from the hero state. */
+  onOpen: () => void
 }
 
 // Centered hero that fills the viewport below the 4rem nav. Renders the name,
 // title, subtitle, and hero summary from resume data, with the agent bar
 // centered beneath.
-export function Hero({ resume, agentBarRef, onSubmit }: HeroProps) {
+export function Hero({ resume, agentBarRef, onSubmit, onOpen }: HeroProps) {
   const { name, heroTitle, heroSubtitle, summary } = resume.personal
 
   return (
@@ -32,7 +34,7 @@ export function Hero({ resume, agentBarRef, onSubmit }: HeroProps) {
       </p>
 
       <div ref={agentBarRef} className="mt-12 flex w-full justify-center">
-        <AgentBar onSubmit={onSubmit} />
+        <AgentBar onSubmit={onSubmit} onOpen={onOpen} />
       </div>
     </section>
   )

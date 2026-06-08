@@ -25,7 +25,7 @@ export default function HomePage() {
   return (
     <>
       <main className="pb-20">
-        <Hero resume={data} agentBarRef={heroBarRef} onSubmit={chat.send} />
+        <Hero resume={data} agentBarRef={heroBarRef} onSubmit={chat.send} onOpen={chat.open} />
         <div className="section-separator" />
         <Experience />
         <Skills />
