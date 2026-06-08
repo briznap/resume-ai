@@ -6,6 +6,9 @@ returned to the client — the frontend only ever sees the generated reply text.
 """
 
 import logging
+import os
+import re
+from pathlib import Path
 
 from anthropic import AsyncAnthropic
 
@@ -14,6 +17,14 @@ logger = logging.getLogger("resume-ai")
 # Model id per CLAUDE.md → Tech Stack.
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1024
+
+# Path to the optional free-form agent context file (defaults to the Docker
+# mount location; use ../agent-context.md for local dev via the env var).
+AGENT_CONTEXT_PATH = os.getenv("AGENT_CONTEXT_PATH", "/app/agent-context.md")
+
+# Authoring notes like "[BRAD: fill in]" are instructions to the author, not
+# context for the agent — strip them out before they reach the model.
+_BRAD_BLOCK = re.compile(r"\[BRAD:.*?\]", flags=re.DOTALL)
 
 SYSTEM_PROMPT_HEADER = (
     "You are an AI assistant for Brad Belnap's interactive resume. Answer "
@@ -94,14 +105,44 @@ def _render_resume(resume: dict) -> str:
     return "\n".join(lines)
 
 
-def build_system_prompt(resume: dict) -> str:
-    """Assemble the full system prompt from the header + rendered resume."""
-    return (
+def load_agent_context() -> str | None:
+    """Load the optional agent-context file, stripping [BRAD: ...] author notes.
+
+    Returns the cleaned text, or None if the file is missing/unreadable (the
+    agent still works with resume data only).
+    """
+    path = Path(AGENT_CONTEXT_PATH)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("Agent context file not found at %s; continuing without it.", path)
+        return None
+    except OSError as exc:
+        logger.warning("Could not read agent context file at %s: %s", path, exc)
+        return None
+
+    cleaned = _BRAD_BLOCK.sub("", raw).strip()
+    if not cleaned:
+        logger.warning("Agent context file at %s is empty after cleaning; skipping.", path)
+        return None
+    return cleaned
+
+
+def build_system_prompt(resume: dict, additional_context: str | None = None) -> str:
+    """Assemble the system prompt: header + resume, plus optional extra context."""
+    prompt = (
         f"{SYSTEM_PROMPT_HEADER}\n\n"
         f"--- RESUME DATA ---\n"
         f"{_render_resume(resume)}\n"
         f"--- END RESUME DATA ---"
     )
+    if additional_context:
+        prompt += (
+            f"\n\n--- ADDITIONAL CONTEXT ---\n"
+            f"{additional_context}\n"
+            f"--- END ADDITIONAL CONTEXT ---"
+        )
+    return prompt
 
 
 def _extract_text(response) -> str:
@@ -116,7 +157,7 @@ class AgentService:
     def __init__(self, resume: dict, api_key: str, model: str = MODEL):
         self._client = AsyncAnthropic(api_key=api_key)
         self._model = model
-        self.system_prompt = build_system_prompt(resume)
+        self.system_prompt = build_system_prompt(resume, load_agent_context())
 
     async def generate_reply(self, messages: list[dict]) -> str:
         """Send the conversation to Anthropic and return the assistant's text."""

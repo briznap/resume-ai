@@ -1,0 +1,19 @@
+# Dependencies / build artifacts (reinstalled or rebuilt inside the image)
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.pyc
+
+# Secrets & local data (provided at runtime via env_file / volume mounts)
+backend/.env
+.env
+*.local
+
+# VCS / tooling / OS
+.git
+.gitignore
+*.log
+.DS_Store
+.vscode
+.idea
