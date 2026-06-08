@@ -28,13 +28,12 @@ GitHub repo: `https://github.com/briznap/resume-ai`
 | Icons | `react-icons` | GitHub / LinkedIn nav icons |
 | Backend | Python 3.12 + FastAPI | Agent proxy, resume API, security middleware |
 | AI Agent | Anthropic API — Claude Sonnet (`claude-sonnet-4-6`) | Backend-proxied, never client-side |
-| Auth — Phase 1 | Pangolin built-in auth | Proxy-level gate during development; app has no auth code |
-| Auth — Phase 2 | Custom magic link | Not yet built; HMAC-SHA256 tokens, Resend for email |
-| Rate limiting | slowapi | Per-IP, 30 req / 30 min on `/api/chat`; upgrades to per-session in Phase 2 |
+| Auth | Custom magic link (built) | Email magic link → HMAC-signed, HttpOnly session cookie; allowlist-gated. Replaces the interim Pangolin proxy gate |
+| Rate limiting | slowapi | 30 chat msgs / 30 min per **session**; 5 link requests / 15 min per IP (429 + Retry-After) |
 | Containers | Docker + Docker Compose | Two containers: frontend (Nginx), backend (uvicorn) |
-| Reverse proxy | Pangolin on VPS | TLS termination + Phase 1 auth gate; reaches the frontend container over an external `pangolin` Docker network |
+| Reverse proxy | Pangolin on VPS | Origin TLS termination; routes to the frontend container over an external `pangolin` Docker network |
 | API routing | Nginx (in the frontend container) | Proxies `/api/` and `/health` to the backend over the internal `app-network` |
-| Email — Phase 2 | Resend API | Magic link delivery; not needed until Phase 2 |
+| Email | Resend API | Magic-link delivery |
 
 ---
 
@@ -57,6 +56,8 @@ resume-ai/
 │   ├── tailwind.config.ts
 │   ├── postcss.config.js
 │   ├── tsconfig.json / tsconfig.node.json
+│   ├── public/
+│   │   └── brad-belnap-resume.pdf  ← downloadable CV, served at /brad-belnap-resume.pdf
 │   └── src/
 │       ├── main.tsx                 ← Router setup (createBrowserRouter, 3 routes)
 │       ├── App.tsx                  ← Root layout: blob bg, Nav, <Outlet>, chat drawer; scroll-to-top + close-drawer on route change
@@ -67,10 +68,11 @@ resume-ai/
 │       │   ├── AboutPage.tsx        ← Bio page (hero + bio + detail chips)
 │       │   └── UnderTheHoodPage.tsx ← Architecture explorer as a standalone route
 │       ├── components/
+│       │   ├── AuthGate.tsx        ← Full-screen invitation auth gate (overlays the app)
 │       │   ├── layout/
-│       │   │   ├── Nav.tsx          ← Two-group nav (content | meta), social icons, hamburger < 768px
+│       │   │   ├── Nav.tsx          ← Two-group nav (content | meta), social + résumé download, hamburger < 768px
 │       │   │   ├── Hero.tsx         ← Centered hero: name, title, summary, agent bar
-│       │   │   ├── AgentBar.tsx     ← Shared input bar (hero, sticky, drawer); opens drawer + shows message count
+│       │   │   ├── AgentBar.tsx     ← Shared input bar (hero, sticky, drawer); opens drawer, count pill, typewriter placeholder
 │       │   │   ├── StickyAgentBar.tsx ← Sticky bottom bar wrapper (fade in/out)
 │       │   │   └── BlobBackground.tsx ← Animated radial-gradient background (memoized, z-index -1)
 │       │   ├── sections/
@@ -80,34 +82,40 @@ resume-ai/
 │       │   │   ├── Education.tsx
 │       │   │   └── UnderTheHood.tsx ← Interactive layer explorer (used by UnderTheHoodPage)
 │       │   ├── agent/
-│       │   │   ├── AgentDrawer.tsx  ← Chat drawer that slides up from the bottom bar
+│       │   │   ├── AgentDrawer.tsx  ← Chat drawer (slides up; suggested-prompt chips when empty)
 │       │   │   └── AgentMessage.tsx ← Message bubble; assistant replies via react-markdown
 │       │   └── ui/
 │       │       ├── Card.tsx
 │       │       └── SectionHeader.tsx
 │       ├── hooks/
 │       │   ├── useHeroIntersection.ts  ← IntersectionObserver watching hero agent bar exit
-│       │   ├── useChat.ts              ← Conversation state (shared with pages via Outlet context)
+│       │   ├── useChat.ts              ← Conversation state (shared via Outlet context); onUnauthorized on chat 401
+│       │   ├── useTypingPlaceholder.ts ← Cycling typewriter placeholder (respects reduced motion)
 │       │   └── useResume.ts            ← Fetches and caches resume data from GET /api/resume
 │       ├── lib/
-│       │   └── api.ts               ← fetchResume + sendChat (relative paths, CSP-friendly)
+│       │   ├── api.ts               ← fetchResume, sendChat, checkSession, requestMagicLink
+│       │   └── prompts.ts           ← Suggested-prompt list (drawer chips + typewriter)
 │       └── types/
 │           ├── resume.ts            ← Types matching resume.json schema
 │           └── chat.ts              ← Chat message / DTO types
 │
 ├── backend/
 │   ├── main.py                      ← FastAPI app init, middleware, lifespan, router registration
+│   ├── dependencies.py              ← get_current_session (validates the signed session cookie)
 │   ├── requirements.txt
 │   ├── .env.example                 ← Template, committed. Actual .env is gitignored.
 │   ├── routers/
-│   │   ├── agent.py                 ← POST /api/chat (input validation + injection guards + rate limit)
+│   │   ├── agent.py                 ← POST /api/chat (session-gated, input validation, per-session rate limit)
+│   │   ├── auth.py                  ← POST /api/auth/request, GET /api/auth/verify, GET /api/auth/status
 │   │   ├── resume.py                ← GET /api/resume (serves loaded resume.json)
 │   │   └── health.py                ← GET /health
 │   ├── services/
-│   │   └── agent_service.py         ← Anthropic proxy + system prompt (resume + agent-context.md)
+│   │   ├── agent_service.py         ← Anthropic proxy + system prompt (resume + agent-context.md)
+│   │   ├── auth_service.py          ← Magic-link tokens, email allowlist, signed session tokens
+│   │   └── email_service.py         ← Resend integration (magic-link email)
 │   ├── middleware/
 │   │   ├── security_headers.py      ← Adds all security headers to every response
-│   │   └── rate_limiter.py          ← slowapi limiter, keyed per client IP
+│   │   └── rate_limiter.py          ← slowapi limiter; per-IP default + per-session key for chat
 │   └── models/
 │       └── agent.py                 ← Pydantic models for chat requests/responses
 │
@@ -117,9 +125,6 @@ resume-ai/
     ├── frontend.Dockerfile          ← Node 20 build → Nginx alpine serve
     ├── backend.Dockerfile           ← Python 3.12-slim, non-root appuser, uvicorn
     └── nginx.conf                   ← SPA fallback + /api & /health proxy + asset caching
-
-# Phase-2-only files NOT yet created: backend routers/auth.py, services/auth_service.py,
-# services/email_service.py, models/auth.py; frontend AuthGate.tsx.
 ```
 
 ---
@@ -163,16 +168,17 @@ Backend reads from `backend/.env` (gitignored). Use `backend/.env.example` as th
 | `AGENT_CONTEXT_PATH` | Optional path to agent-context.md (default `/app/agent-context.md` in Docker, `../agent-context.md` locally). If missing, the agent runs on resume data only. |
 | `ENVIRONMENT` | `development` or `production` (controls `/docs` exposure) |
 
-**Phase 2 — added when implementing magic link auth:**
+**Auth (magic link) — required in production:**
 
 | Variable | Description |
 |---|---|
 | `RESEND_API_KEY` | Resend API key for magic link email delivery |
-| `ALLOWED_EMAILS` | Comma-separated list of emails allowed to authenticate |
+| `FROM_EMAIL` | Magic-link sender, e.g. `Brad Belnap <brad@naplab.org>` (must be a Resend-verified domain) |
+| `ALLOWED_EMAILS` | Comma-separated allowlist. Exact addresses (`brad@naplab.org`) and/or `@domain.com` wildcards; case-insensitive. Membership is never revealed to clients. |
 | `SESSION_SECRET` | 32-byte hex string for session cookie signing |
-| `HMAC_SECRET` | 32-byte hex string for magic link token signing |
+| `HMAC_SECRET` | 32-byte hex string for magic link token hashing |
 
-Generate Phase 2 secrets when needed: `python3 -c "import secrets; print(secrets.token_hex(32))"`
+Generate the hex secrets with: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 
 ---
 
@@ -209,14 +215,10 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 **CORS — Phase 1**
 - Allow only the `FRONTEND_ORIGIN` env var value. No wildcards, ever.
 
-**Rate limiting — Phase 1**
-- `POST /api/chat`: 30 requests per 30-minute sliding window, keyed on **client IP address**
+**Rate limiting (current)**
+- `POST /api/chat`: 30 requests per 30-minute sliding window, keyed on the **session cookie** (per authenticated user)
+- `POST /api/auth/request`: 5 requests per 15 minutes per **client IP**
 - On breach: return `HTTP 429` with `Retry-After` header
-- Note: upgrades to per-session-cookie keying in Phase 2 once sessions exist
-
-**Rate limiting — Phase 2 addition**
-- `POST /api/chat`: switch key from IP to session cookie so each authenticated user has their own quota
-- `POST /api/auth/request`: 5 requests per 15 minutes per IP
 
 **Input validation — Phase 1 (before forwarding to Anthropic)**
 - Chat messages: max 1000 characters
@@ -352,9 +354,9 @@ docker compose restart backend
 
 ## Build Order
 
-### Phase 1 — Build the product (steps 1–6 complete; step 7 deploy pending)
+### Phase 1 — Build the product (complete; deployed to VPS)
 
-Auth is handled by Pangolin at the proxy level. Do not write any auth code in Phase 1.
+Phase 1 shipped with Pangolin handling auth at the proxy level; application-level auth arrived in Phase 2.
 
 1. **Backend skeleton** — `main.py`, security headers middleware, rate limiter (per-IP), `GET /health`, `GET /api/resume`
 2. **Frontend scaffold** — Vite + TypeScript setup, Tailwind dark theme + CSS custom properties, `GET /api/resume` hook, Nav + Hero rendering resume data
@@ -364,9 +366,9 @@ Auth is handled by Pangolin at the proxy level. Do not write any auth code in Ph
 6. **Docker Compose** — frontend + backend containers, resume.json volume mount, networking
 7. **Deploy to VPS** — push to VPS, configure Pangolin routing, enable Pangolin auth gate
 
-### Phase 2 — Add application-level auth (before sharing with hiring managers)
+### Phase 2 — Application-level magic-link auth (complete)
 
-Complete Phase 1 entirely before starting Phase 2. These steps are additive — no existing code is rewritten.
+These steps were additive — no Phase 1 code was rewritten.
 
 1. **Backend auth routes** — create `routers/auth.py` (`POST /api/auth/request`, `GET /api/auth/verify`), `services/auth_service.py`, `services/email_service.py`
 2. **Add session dependency** — add `Depends(get_current_session)` to `POST /api/chat` in `agent.py`
@@ -380,27 +382,16 @@ Complete Phase 1 entirely before starting Phase 2. These steps are additive — 
 
 ## Current State
 
-**Phase 1 is complete and verified.** The full stack builds and runs under Docker; `/health`, `/api/resume`, and `/api/chat` all respond correctly through Nginx, and the agent answers from `resume.json` + `agent-context.md`. Work is committed and merged to `main`.
+**Phases 1 and 2 are complete and the app is deployed** (target `resume.naplab.org`). The full stack builds and runs under Docker; `/health`, `/api/resume`, `/api/chat`, and the auth endpoints all respond correctly through Nginx. Work is committed and merged to `main`.
 
-Done (Phase 1, steps 1–6):
-1. ✅ Backend skeleton — security headers, per-IP rate limiter, `GET /health`, `GET /api/resume`
-2. ✅ Frontend scaffold — Vite + TS + Tailwind dark theme, `useResume`, Nav + Hero
-3. ✅ Scroll behavior — `useHeroIntersection`, hero→sticky AgentBar transition
-4. ✅ Agent endpoint + chat UI — `POST /api/chat` (length cap, null-byte strip, injection-pattern rejection, rate limit), AgentDrawer, AgentMessage
-5. ✅ Content sections — Experience, Skills, Projects, Education, UnderTheHood
-6. ✅ Docker Compose — frontend (Nginx) + backend containers, `resume.json` + `agent-context.md` mounts, internal network
+**Phase 1 — product (done):** backend (security headers, rate limiter, `/health`, `/api/resume`), frontend (Vite + TS + Tailwind dark theme, Nav + Hero), scroll behavior (`useHeroIntersection`), agent endpoint + chat UI, all content sections (Experience, Skills, Projects, Education, UnderTheHood), Docker Compose, and VPS deploy behind Pangolin.
 
-Added beyond the original plan:
-- **Client-side routing** (React Router): `/`, `/about`, `/under-the-hood`. UnderTheHood moved off the home scroll into its own route; App.tsx is now the shared root layout.
-- **About page**, **animated blob background**, **markdown-rendered** agent replies, **nav social icons** (GitHub/LinkedIn).
-- **Agent context file** (`agent-context.md`) appended to the system prompt, with `[BRAD: ...]` author notes stripped at load.
+**Phase 2 — magic-link auth (done):**
+- `POST /api/auth/request` (enumeration-safe, 5/15 min per IP), `GET /api/auth/verify` (sets the session cookie, redirects), `GET /api/auth/status` (frontend auth check). Tokens are 32-byte, HMAC-hashed at rest, single-use, 15-min TTL. Session is an HMAC-signed, HttpOnly / Secure / SameSite=Strict, 7-day cookie.
+- `/api/chat` requires a valid session (`get_current_session`) and is rate-limited **per session** (30 / 30 min). The frontend `AuthGate` overlays the app until authenticated and re-appears if a session expires mid-use.
 
-Not yet done:
-- **Step 7 — deploy to VPS.** Compose is prepared: the frontend joins an external `pangolin` Docker network and the backend stays internal-only (no published ports). Pangolin terminates TLS, applies the Phase 1 auth gate, and routes to the frontend container.
-- **Phase 2 — application-level magic-link auth.** No auth code exists yet; Pangolin handles the gate in the meantime. See Phase 2 build steps above.
+**Beyond the original plan:** client-side routing (`/`, `/about`, `/under-the-hood`); About page; animated blob background; markdown-rendered replies; nav social icons + résumé PDF download; cycling typewriter placeholder + suggested-prompt chips; agent context file (`agent-context.md`) appended to the system prompt with `[BRAD: ...]` notes stripped at load.
 
-**Architecture note:** `/api/` is proxied to the backend by **Nginx inside the frontend container** (`docker/nginx.conf`), not by Pangolin. Pangolin only fronts the frontend container. `uvicorn` runs with `--proxy-headers --forwarded-allow-ips=*` so slowapi's per-IP rate limiting keys on the real client IP forwarded by Nginx.
+**Architecture note:** `/api/` is proxied to the backend by **Nginx inside the frontend container** (`docker/nginx.conf`), not by Pangolin. Pangolin terminates origin TLS and routes to the frontend container over an external `pangolin` Docker network; the backend publishes no ports. `uvicorn` runs with `--proxy-headers --forwarded-allow-ips=*` so per-IP limits key on the real client IP forwarded by Nginx.
 
-**Auth approach remains two-phase:**
-- Phase 1 (current): Pangolin handles auth at the proxy level; the app has zero auth code.
-- Phase 2 (before sharing widely): add magic-link auth to the application layer. See Phase 2 build steps above.
+**Auth:** application-level magic-link auth is now the access gate. The interim Pangolin built-in auth gate is no longer the app's access control — remove it if still enabled on the deployment.

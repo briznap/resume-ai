@@ -20,7 +20,7 @@ interface Layer {
   decisions: Decision[]
 }
 
-// Hardcoded architecture of THIS application, drawn from CLAUDE.md.
+// Hardcoded architecture of THIS application.
 const LAYERS: Layer[] = [
   {
     id: 'client',
@@ -28,27 +28,13 @@ const LAYERS: Layer[] = [
     node: 'Browser / SPA',
     icon: <MonitorIcon />,
     name: 'Client',
-    role: "The static single-page app a visitor loads — resume content plus the chat UI. No secrets ever live here; it only talks to this app's own backend.",
-    stack: ['React 18', 'TypeScript', 'Vite', 'Tailwind CSS', 'Framer Motion'],
+    role: "The static single-page app a visitor loads — resume content, the chat UI, and the invitation auth gate. No secrets ever live here; it only talks to this app's own backend, same-origin.",
+    stack: ['React 18', 'TypeScript', 'Vite', 'Tailwind CSS', 'React Router', 'Framer Motion'],
     decisions: [
       { kind: 'security', text: 'No API keys in client code — the browser never calls Anthropic directly.' },
       { kind: 'security', text: "All requests are same-origin, satisfying the CSP connect-src 'self' policy." },
       { kind: 'design', text: 'Resume content is hydrated at runtime from GET /api/resume, not baked into the bundle.' },
-      { kind: 'design', text: 'Dark-mode design system driven entirely by CSS custom properties.' },
-    ],
-  },
-  {
-    id: 'edge',
-    category: 'Edge',
-    node: 'Cloudflare',
-    icon: <CloudIcon />,
-    name: 'Edge (Cloudflare)',
-    role: 'The public entry point in front of the origin — DNS, global TLS, and edge protection before any traffic reaches the VPS.',
-    stack: ['Cloudflare DNS', 'Edge TLS', 'CDN cache', 'DDoS / bot mitigation'],
-    decisions: [
-      { kind: 'security', text: 'Edge TLS and DDoS/bot mitigation shield the origin from direct exposure.' },
-      { kind: 'security', text: 'The origin server sits behind Cloudflare rather than being published in DNS.' },
-      { kind: 'design', text: 'Static assets are cacheable at the edge for fast global loads.' },
+      { kind: 'design', text: 'Client-side routing (/, /about, /under-the-hood) over a dark design system driven by CSS custom properties.' },
     ],
   },
   {
@@ -57,28 +43,43 @@ const LAYERS: Layer[] = [
     node: 'Pangolin · VPS',
     icon: <GatewayIcon />,
     name: 'Gateway (Pangolin)',
-    role: 'A reverse proxy on the self-hosted VPS — terminates origin TLS, routes to the right container, and (Phase 1) gates the whole app with its built-in auth.',
-    stack: ['Pangolin', 'Reverse proxy', 'Self-hosted VPS', 'Docker network'],
+    role: 'Public DNS (Cloudflare, DNS-only) resolves straight to the self-hosted VPS, where Pangolin — a reverse proxy — terminates TLS and routes traffic to the frontend container over a private Docker network.',
+    stack: ['Pangolin', 'Reverse proxy', "Let's Encrypt TLS", 'Self-hosted VPS', 'Docker network'],
     decisions: [
-      { kind: 'security', text: 'Phase 1 auth is handled here at the proxy — the app ships zero auth code until Phase 2.' },
-      { kind: 'security', text: "The backend port is never exposed to the host; only Pangolin can reach it." },
-      { kind: 'design', text: 'Routes /api to the FastAPI backend and everything else to the Nginx frontend.' },
-      { kind: 'design', text: 'TLS termination and container routing live here, not in application code.' },
+      { kind: 'security', text: 'Cloudflare provides DNS only — no proxy, CDN, or WAF; records resolve directly to the VPS.' },
+      { kind: 'security', text: "Pangolin terminates TLS (Let's Encrypt) and routes to the frontend container over an internal network." },
+      { kind: 'security', text: 'The backend publishes no ports — nothing external can reach it directly.' },
+      { kind: 'design', text: 'TLS termination and container routing live at the proxy, not in application code.' },
     ],
   },
   {
     id: 'application',
     category: 'Application',
-    node: 'FastAPI · React',
+    node: 'Nginx · FastAPI',
     icon: <ServerIcon />,
     name: 'Application',
-    role: 'Two containers doing the work: a FastAPI backend that proxies the agent and serves resume data, and a Nginx-served React frontend.',
+    role: 'Two containers do the work: an Nginx-served React frontend that also proxies /api to a FastAPI backend serving resume data, auth, and the agent.',
     stack: ['Python 3.12', 'FastAPI', 'uvicorn', 'slowapi', 'Nginx', 'Docker Compose'],
     decisions: [
       { kind: 'security', text: 'Security headers on every response — HSTS, CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy.' },
-      { kind: 'security', text: 'Per-IP rate limiting on /api/chat — 30 requests / 30 min, returning 429 + Retry-After on breach.' },
-      { kind: 'security', text: 'CORS locked to a single FRONTEND_ORIGIN (no wildcards); the backend container runs as a non-root user.' },
-      { kind: 'design', text: 'Resume content is loaded from resume.json at startup — updating it is a restart, not a rebuild.' },
+      { kind: 'security', text: 'slowapi rate limits: 30 chat messages / 30 min per session, 5 link requests / 15 min per IP (429 + Retry-After).' },
+      { kind: 'security', text: 'CORS locked to a single origin (no wildcards); the backend container runs as a non-root user.' },
+      { kind: 'design', text: 'Nginx proxies /api to the backend internally; resume + agent context load at startup, so updates are a restart, not a rebuild.' },
+    ],
+  },
+  {
+    id: 'auth',
+    category: 'Auth',
+    node: 'Magic Link',
+    icon: <KeyIcon />,
+    name: 'Auth (Magic Link)',
+    role: 'Access is by invitation. A visitor requests a one-time link by email; clicking it sets a signed session cookie that gates the assistant.',
+    stack: ['Magic link', 'HMAC-SHA256', 'Resend', 'HttpOnly cookie'],
+    decisions: [
+      { kind: 'security', text: 'Single-use tokens (32-byte random, HMAC-hashed at rest) expire after 15 minutes.' },
+      { kind: 'security', text: 'The session is an HMAC-signed, HttpOnly, Secure, SameSite=Strict cookie — never readable by JavaScript.' },
+      { kind: 'security', text: "The request endpoint responds identically whether or not an email is allowlisted, so membership can't be enumerated." },
+      { kind: 'design', text: 'Links are delivered via Resend; the chat endpoint requires a valid session to answer.' },
     ],
   },
   {
@@ -87,13 +88,13 @@ const LAYERS: Layer[] = [
     node: 'Claude Sonnet',
     icon: <SparkIcon />,
     name: 'AI Agent (Claude Sonnet)',
-    role: "Brad's resume assistant. The backend builds a system prompt from resume.json and proxies questions to Anthropic — the browser is never in that loop.",
+    role: "Brad's resume assistant. The backend builds a system prompt from the resume plus curated context, then proxies questions to Anthropic — the browser is never in that loop.",
     stack: ['Anthropic API', 'claude-sonnet-4-6', 'Backend proxy'],
     decisions: [
       { kind: 'security', text: 'ANTHROPIC_API_KEY lives only in backend env — never logged, never sent to the client.' },
       { kind: 'security', text: 'Input is validated before forwarding: 1000-char cap, null-byte stripping, prompt-injection pattern rejection.' },
       { kind: 'security', text: 'The system prompt refuses behavior-changing instructions and never reveals itself.' },
-      { kind: 'design', text: 'Answers are grounded solely in resume.json; out-of-scope questions are declined.' },
+      { kind: 'design', text: 'Answers are grounded in the resume plus curated context; out-of-scope questions are declined.' },
     ],
   },
 ]
@@ -184,19 +185,6 @@ function MonitorIcon() {
   )
 }
 
-function CloudIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M7 18a4 4 0 010-8 5 5 0 019.6-1.3A3.5 3.5 0 0117.5 18H7z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function GatewayIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
@@ -226,6 +214,21 @@ function SparkIcon() {
       <path
         d="M12 3l1.8 4.6L18.4 9.4 13.8 11.2 12 15.8 10.2 11.2 5.6 9.4 10.2 7.6 12 3z"
         fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function KeyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M11 11l8 8M16.5 16.5l2-2M18.5 18.5l1.5-1.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   )
