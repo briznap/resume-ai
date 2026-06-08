@@ -1,21 +1,44 @@
-import { useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Nav } from './components/layout/Nav'
 import { BlobBackground } from './components/layout/BlobBackground'
+import { AuthGate } from './components/AuthGate'
 import { AgentDrawer } from './components/agent/AgentDrawer'
 import { useResume } from './hooks/useResume'
 import { useChat, type UseChatResult } from './hooks/useChat'
+import { checkSession } from './lib/api'
 
 // Context handed to route pages via <Outlet> so they share one conversation.
 export type AppOutletContext = UseChatResult
+
+type AuthState = 'checking' | 'in' | 'out'
 
 // Root layout shared by every route: animated background, nav, the chat drawer,
 // and the shared chat state. Pages render into <Outlet> and read chat via
 // useOutletContext<AppOutletContext>().
 export default function App() {
   const { data, loading, error } = useResume()
-  const chat = useChat()
   const location = useLocation()
+  const [authState, setAuthState] = useState<AuthState>('checking')
+
+  // Re-show the gate if a session expires mid-use (chat 401).
+  const handleUnauthorized = useCallback(() => setAuthState('out'), [])
+  const chat = useChat(handleUnauthorized)
+
+  // Check auth on mount.
+  useEffect(() => {
+    let active = true
+    checkSession()
+      .then((session) => {
+        if (active) setAuthState(session ? 'in' : 'out')
+      })
+      .catch(() => {
+        if (active) setAuthState('out')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Bug 1: On navigation, scroll to top — unless there's a hash, in which case
   // scroll the target section into view instead. The 50ms timeout lets the page
@@ -56,15 +79,24 @@ export default function App() {
 
       <Nav resume={data} />
 
-      <Outlet context={chat satisfies AppOutletContext} />
+      {/* App content mounts once auth is known (no content flash during the
+          check) and stays mounted if the session later expires — the gate just
+          overlays on top rather than unmounting the router/pages. */}
+      {authState !== 'checking' && (
+        <>
+          <Outlet context={chat satisfies AppOutletContext} />
 
-      <AgentDrawer
-        open={chat.isOpen}
-        messages={chat.messages}
-        isLoading={chat.isLoading}
-        onClose={chat.close}
-        onSubmit={chat.send}
-      />
+          <AgentDrawer
+            open={chat.isOpen}
+            messages={chat.messages}
+            isLoading={chat.isLoading}
+            onClose={chat.close}
+            onSubmit={chat.send}
+          />
+        </>
+      )}
+
+      {authState === 'out' && <AuthGate />}
     </>
   )
 }

@@ -1,16 +1,17 @@
 """POST /api/chat — the resume assistant endpoint.
 
 Pipeline: validate/sanitize input → check agent availability → proxy to
-Anthropic via AgentService. Per-IP rate limited (30 / 30 min). All input
-validation happens *before* anything is forwarded to Anthropic, per CLAUDE.md
-→ Security Requirements (Input validation).
+Anthropic via AgentService. Requires a valid session (Phase 2) and is rate
+limited per session (30 / 30 min). All input validation happens *before*
+anything is forwarded to Anthropic, per CLAUDE.md → Security Requirements.
 """
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from middleware.rate_limiter import limiter
+from dependencies import get_current_session
+from middleware.rate_limiter import limiter, session_key_func
 from models.agent import ChatRequest, ChatResponse, ChatTurn
 
 logger = logging.getLogger("resume-ai")
@@ -72,8 +73,13 @@ def _build_anthropic_messages(message: str, history: list[ChatTurn]) -> list[dic
 
 
 @router.post("/api/chat", response_model=ChatResponse)
-@limiter.limit("30/30 minutes")
-async def chat(request: Request, response: Response, body: ChatRequest) -> ChatResponse:
+@limiter.limit("30/30 minutes", key_func=session_key_func)
+async def chat(
+    request: Request,
+    response: Response,
+    body: ChatRequest,
+    session: dict = Depends(get_current_session),
+) -> ChatResponse:
     # `response` is injected by FastAPI; slowapi writes the X-RateLimit-* headers
     # into it after a successful return (headers_enabled=True). Without this
     # parameter, slowapi raises on the success path.

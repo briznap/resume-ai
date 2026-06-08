@@ -59,3 +59,42 @@ export async function sendChat(message: string, history: ChatTurnDTO[]): Promise
   const data = (await res.json()) as ChatResponse
   return data.reply
 }
+
+export interface SessionInfo {
+  email: string
+}
+
+/** Check auth state. Returns the session (200) or null if unauthenticated (401)
+ *  or the backend is unreachable. */
+export async function checkSession(): Promise<SessionInfo | null> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/auth/status`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    })
+  } catch {
+    return null
+  }
+  if (!res.ok) return null
+  return (await res.json()) as SessionInfo
+}
+
+/** Request a magic link. The backend always responds 200 (enumeration-safe);
+ *  this resolves on success and rejects only on a network/server failure. */
+export async function requestMagicLink(email: string): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/auth/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ email }),
+      credentials: 'include',
+    })
+  } catch {
+    throw new Error('Network error')
+  }
+  if (!res.ok) {
+    throw new Error(`Request failed with status ${res.status}`)
+  }
+}

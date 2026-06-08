@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FaGithub, FaLinkedin } from 'react-icons/fa'
+import { FaDownload, FaGithub, FaLinkedin } from 'react-icons/fa'
 import type { Resume } from '../../types/resume'
 
 // In-page section anchors (left/content group). They point at "/#id" so they
@@ -85,6 +85,13 @@ export function Nav({ resume }: { resume: Resume }) {
             >
               <FaGithub className="h-4 w-4" />
             </a>
+            <a
+              href="/brad-belnap-resume.pdf"
+              download
+              className="inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              <FaDownload className="h-3.5 w-3.5" /> Résumé
+            </a>
           </div>
 
           {/* Mobile hamburger (< 768px) */}
@@ -150,6 +157,14 @@ export function Nav({ resume }: { resume: Resume }) {
               className="inline-flex items-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
             >
               <FaGithub className="h-4 w-4" /> GitHub
+            </a>
+            <a
+              href="/brad-belnap-resume.pdf"
+              download
+              onClick={closeMenu}
+              className="inline-flex items-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              <FaDownload className="h-4 w-4" /> Résumé
             </a>
           </div>
         </div>

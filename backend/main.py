@@ -25,7 +25,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from middleware.rate_limiter import limiter
 from middleware.security_headers import SecurityHeadersMiddleware
-from routers import agent, health, resume
+from routers import agent, auth, health, resume
 from services.agent_service import AgentService
 
 load_dotenv()
@@ -102,3 +102,4 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(health.router)
 app.include_router(resume.router)
 app.include_router(agent.router)
+app.include_router(auth.router)

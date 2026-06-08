@@ -1,21 +1,28 @@
-"""Per-IP rate limiter (Phase 1).
+"""Rate limiter.
 
-A single shared slowapi ``Limiter`` instance, keyed on the client IP address.
-Phase 1 keys on IP; Phase 2 will switch the key function to the session
-cookie (see CLAUDE.md → Build Order). Routes opt in to limits with the
-``@limiter.limit(...)`` decorator — e.g. ``POST /api/chat`` gets
-``"30/30 minutes"`` in step 4. No global default limit is applied, so
-``/health`` and ``/api/resume`` are unthrottled.
+A single shared slowapi ``Limiter`` whose default key is the client IP address
+(used by ``POST /api/auth/request``: 5 / 15 min per IP). ``POST /api/chat``
+overrides the key with ``session_key_func`` so each authenticated user gets
+their own 30-message quota rather than sharing one per IP.
 
-A moving-window strategy is used so the limit is a true sliding window rather
-than a fixed bucket that resets on a wall-clock boundary.
+A moving-window strategy is used so limits are true sliding windows rather than
+fixed buckets that reset on a wall-clock boundary.
 """
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from starlette.requests import Request
+
+from services.auth_service import SESSION_COOKIE
 
 limiter = Limiter(
     key_func=get_remote_address,
     strategy="moving-window",
     headers_enabled=True,  # emit Retry-After + X-RateLimit-* headers on 429
 )
+
+
+def session_key_func(request: Request) -> str:
+    """Rate-limit key for authenticated routes: the session cookie value, so the
+    quota is per user. Falls back to client IP if the cookie is absent."""
+    return request.cookies.get(SESSION_COOKIE) or get_remote_address(request)
