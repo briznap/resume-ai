@@ -60,87 +60,111 @@ body {
 }
 
 /* ── Animated blob background ──
-   Fixed full-viewport layer behind all content. Three soft radial-gradient
-   circles in the indigo family, animated with transform: translate() only
-   (no opacity changes → no flicker). Sits behind content via negative z-index. */
+   Fixed full-viewport layer at z-index -1, which places it behind all content
+   naturally (no z-index needed on page wrappers). Three soft radial-gradient
+   circles in the indigo family, animated with transform: translate()/scale()
+   only — no opacity flicker, no blur filter. */
 .bg-blobs {
   position: fixed;
   inset: 0;
-  z-index: -10;
+  z-index: -1;
   overflow: hidden;
   pointer-events: none;
 }
 
 .blob {
   position: absolute;
-  border-radius: 9999px;
+  border-radius: 50%;
   will-change: transform;
 }
 
 .blob--1 {
-  width: 520px;
-  height: 520px;
-  top: -90px;
-  right: -70px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.12), transparent 70%);
-  animation: blob1 52s ease-in-out infinite;
+  width: 600px;
+  height: 600px;
+  top: -200px;
+  right: -100px;
+  background: radial-gradient(
+    circle,
+    rgba(99, 102, 241, 0.22) 0%,
+    rgba(99, 102, 241, 0.08) 40%,
+    transparent 70%
+  );
+  animation: blob1 25s ease-in-out infinite;
+  /* Negative delay starts the blob mid-cycle if it ever re-initialises. */
+  animation-delay: -8s;
 }
 
 .blob--2 {
-  width: 460px;
-  height: 460px;
-  bottom: -90px;
-  left: -70px;
-  background: radial-gradient(circle, rgba(129, 140, 248, 0.08), transparent 70%);
-  animation: blob2 64s ease-in-out infinite;
+  width: 520px;
+  height: 520px;
+  bottom: -150px;
+  left: -120px;
+  background: radial-gradient(
+    circle,
+    rgba(129, 140, 248, 0.16) 0%,
+    rgba(129, 140, 248, 0.06) 40%,
+    transparent 70%
+  );
+  animation: blob2 33s ease-in-out infinite;
+  animation-delay: -15s;
 }
 
 .blob--3 {
-  width: 340px;
-  height: 340px;
-  top: 42%;
-  right: 6%;
-  background: radial-gradient(circle, rgba(67, 56, 202, 0.07), transparent 70%);
-  animation: blob3 76s ease-in-out infinite;
+  width: 400px;
+  height: 400px;
+  top: 40%;
+  left: 35%;
+  background: radial-gradient(
+    circle,
+    rgba(67, 56, 202, 0.13) 0%,
+    rgba(67, 56, 202, 0.04) 40%,
+    transparent 70%
+  );
+  animation: blob3 42s ease-in-out infinite;
+  animation-delay: -22s;
 }
 
+/* Staggered drifts (~130–160px range), each in different directions. */
 @keyframes blob1 {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: translate(0, 0) scale(1);
   }
   33% {
-    transform: translate(-52px, 44px);
+    transform: translate(-130px, 160px) scale(1.12);
   }
   66% {
-    transform: translate(36px, -40px);
+    transform: translate(160px, -80px) scale(0.88);
   }
 }
 
 @keyframes blob2 {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: translate(0, 0) scale(1);
   }
   33% {
-    transform: translate(48px, -36px);
+    transform: translate(160px, -130px) scale(0.88);
   }
   66% {
-    transform: translate(-44px, 50px);
+    transform: translate(-80px, 160px) scale(1.12);
   }
 }
 
 @keyframes blob3 {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: translate(0, 0) scale(1);
   }
-  50% {
-    transform: translate(-46px, -54px);
+  33% {
+    transform: translate(-110px, 90px) scale(1.08);
+  }
+  66% {
+    transform: translate(120px, 130px) scale(0.92);
   }
 }
 
-/* Respect users who prefer reduced motion. */
+/* Respect users who prefer reduced motion → static blobs. */
 @media (prefers-reduced-motion: reduce) {
   .blob {
     animation: none;

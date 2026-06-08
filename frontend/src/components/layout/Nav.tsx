@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { FaGithub, FaLinkedin } from 'react-icons/fa'
 import type { Resume } from '../../types/resume'
 
-// In-page section anchors. They point at "/#id" so they work from any route —
-// on the home page the browser scrolls in place; from a subpage they navigate
-// home and then jump to the section.
+// In-page section anchors (left/content group). They point at "/#id" so they
+// work from any route — on the home page the browser scrolls in place; from a
+// subpage they navigate home and then jump to the section.
 const SECTION_LINKS = [
   { label: 'Experience', href: '/#experience' },
   { label: 'Skills', href: '/#skills' },
@@ -13,13 +13,8 @@ const SECTION_LINKS = [
   { label: 'Education', href: '/#education' },
 ]
 
-// Standalone routes — client-side navigation via React Router.
-const ROUTE_LINKS = [
-  { label: 'Under the Hood', to: '/under-the-hood' },
-  { label: 'About', to: '/about' },
-]
-
 const linkClass = 'text-sm text-text-secondary transition-colors hover:text-text-primary'
+const iconLinkClass = 'text-text-secondary transition-colors hover:text-text-primary'
 
 export function Nav({ resume }: { resume: Resume }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -44,46 +39,51 @@ export function Nav({ resume }: { resume: Resume }) {
       }`}
     >
       <nav className="mx-auto flex h-16 max-w-4xl items-center justify-between px-6">
-        <Link to="/" className="text-[17px] font-medium text-text-primary">
-          {name}
-        </Link>
+        {/* Name + LinkedIn (icon-only, 8px gap), far left */}
+        <div className="flex items-center gap-2">
+          <Link to="/" className="text-[17px] font-medium text-text-primary">
+            {name}
+          </Link>
+          <a
+            href={social.linkedin}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label="LinkedIn"
+            className={`hidden md:inline-flex ${iconLinkClass}`}
+          >
+            <FaLinkedin className="h-4 w-4" />
+          </a>
+        </div>
 
         <div className="flex items-center gap-4 sm:gap-6">
-          {/* Section + route links — desktop only (hamburger on mobile) */}
+          {/* Left group — content navigation (desktop) */}
           <div className="hidden items-center gap-7 md:flex">
             {SECTION_LINKS.map((link) => (
               <a key={link.href} href={link.href} className={linkClass}>
                 {link.label}
               </a>
             ))}
-            {ROUTE_LINKS.map((link) => (
-              <Link key={link.to} to={link.to} className={linkClass}>
-                {link.label}
-              </Link>
-            ))}
+            <Link to="/about" className={linkClass}>
+              About
+            </Link>
           </div>
 
-          {/* Social links — always visible; text labels collapse to icons on mobile */}
-          <div className="flex items-center gap-4">
+          {/* Subtle vertical divider between the two groups (desktop) */}
+          <span aria-hidden="true" className="hidden h-3.5 w-px bg-line md:block" />
+
+          {/* Right group — meta & external (desktop) */}
+          <div className="hidden items-center gap-5 md:flex">
+            <Link to="/under-the-hood" className={linkClass}>
+              Under the Hood
+            </Link>
             <a
               href={social.repoUrl}
               target="_blank"
               rel="noreferrer noopener"
-              aria-label="Repository"
-              className="inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
+              aria-label="GitHub"
+              className={iconLinkClass}
             >
               <FaGithub className="h-4 w-4" />
-              <span className="hidden sm:inline">Repo</span>
-            </a>
-            <a
-              href={social.linkedin}
-              target="_blank"
-              rel="noreferrer noopener"
-              aria-label="LinkedIn"
-              className="inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
-            >
-              <FaLinkedin className="h-4 w-4" />
-              <span className="hidden sm:inline">LinkedIn</span>
             </a>
           </div>
 
@@ -100,10 +100,21 @@ export function Nav({ resume }: { resume: Resume }) {
         </div>
       </nav>
 
-      {/* Mobile menu panel — section links only (social icons live in the bar) */}
+      {/* Mobile menu — all links in one list, the two groups split by an <hr>. */}
       {menuOpen && (
         <div className="border-t border-line bg-bg px-6 py-3 md:hidden">
           <div className="flex flex-col gap-1">
+            {/* LinkedIn near the top, labeled */}
+            <a
+              href={social.linkedin}
+              target="_blank"
+              rel="noreferrer noopener"
+              onClick={closeMenu}
+              className="inline-flex items-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              <FaLinkedin className="h-4 w-4" /> LinkedIn
+            </a>
+
             {SECTION_LINKS.map((link) => (
               <a
                 key={link.href}
@@ -114,16 +125,32 @@ export function Nav({ resume }: { resume: Resume }) {
                 {link.label}
               </a>
             ))}
-            {ROUTE_LINKS.map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                onClick={closeMenu}
-                className="py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
-              >
-                {link.label}
-              </Link>
-            ))}
+            <Link
+              to="/about"
+              onClick={closeMenu}
+              className="py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              About
+            </Link>
+
+            <hr className="my-2 border-line" />
+
+            <Link
+              to="/under-the-hood"
+              onClick={closeMenu}
+              className="py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              Under the Hood
+            </Link>
+            <a
+              href={social.repoUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              onClick={closeMenu}
+              className="inline-flex items-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            >
+              <FaGithub className="h-4 w-4" /> GitHub
+            </a>
           </div>
         </div>
       )}

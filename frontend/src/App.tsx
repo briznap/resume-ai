@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Nav } from './components/layout/Nav'
+import { BlobBackground } from './components/layout/BlobBackground'
 import { AgentDrawer } from './components/agent/AgentDrawer'
 import { useResume } from './hooks/useResume'
 import { useChat, type UseChatResult } from './hooks/useChat'
@@ -50,12 +51,8 @@ export default function App() {
 
   return (
     <>
-      {/* Animated background — sits behind all content (see index.css). */}
-      <div className="bg-blobs" aria-hidden="true">
-        <div className="blob blob--1" />
-        <div className="blob blob--2" />
-        <div className="blob blob--3" />
-      </div>
+      {/* Animated background — first child, sits behind all content. */}
+      <BlobBackground />
 
       <Nav resume={data} />
 
