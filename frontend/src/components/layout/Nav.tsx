@@ -15,9 +15,6 @@ const SECTION_LINKS = [
 
 const linkClass = 'text-sm text-text-secondary transition-colors hover:text-text-primary'
 const iconLinkClass = 'text-text-secondary transition-colors hover:text-text-primary'
-// Indigo-accent pill CTA.
-const hireBtnClass =
-  'items-center rounded-full border border-[rgba(99,102,241,0.5)] bg-[rgba(99,102,241,0.15)] px-3 py-1.5 text-sm text-accent-light transition-colors hover:bg-[rgba(99,102,241,0.25)]'
 
 export function Nav({ resume }: { resume: Resume }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -90,11 +87,6 @@ export function Nav({ resume }: { resume: Resume }) {
             </a>
           </div>
 
-          {/* Hire Brad CTA — far right (desktop) */}
-          <Link to="/about" className={`hidden md:inline-flex ${hireBtnClass}`}>
-            Hire Brad →
-          </Link>
-
           {/* Mobile hamburger (< 768px) */}
           <button
             type="button"
@@ -159,10 +151,6 @@ export function Nav({ resume }: { resume: Resume }) {
             >
               <FaGithub className="h-4 w-4" /> GitHub
             </a>
-
-            <Link to="/about" onClick={closeMenu} className={`mt-2 inline-flex self-start ${hireBtnClass}`}>
-              Hire Brad →
-            </Link>
           </div>
         </div>
       )}
