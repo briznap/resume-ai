@@ -52,8 +52,28 @@ def _load_resume() -> dict | None:
     return None
 
 
+def _validate_secrets() -> None:
+    """Fail fast if the signing secrets are missing or too short.
+
+    Without this, an unset SESSION_SECRET would silently sign session cookies
+    with an empty HMAC key — forgeable by anyone. A misconfigured deploy must
+    be loudly broken, not silently insecure: production refuses to start.
+    """
+    weak = [name for name in ("SESSION_SECRET", "HMAC_SECRET") if len(os.getenv(name, "")) < 32]
+    if not weak:
+        return
+    message = (
+        f"Refusing insecure start: {', '.join(weak)} missing or shorter than 32 chars. "
+        'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+    )
+    if ENVIRONMENT == "production":
+        raise RuntimeError(message)
+    logger.warning("%s (continuing because ENVIRONMENT=%s)", message, ENVIRONMENT)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _validate_secrets()
     app.state.resume = _load_resume()
     if app.state.resume is None:
         logger.warning("Starting without resume data; /api/resume will return 503.")

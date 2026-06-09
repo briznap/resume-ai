@@ -14,7 +14,7 @@ import re
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dependencies import get_current_session
 from middleware.rate_limiter import limiter
@@ -28,7 +28,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class AuthRequest(BaseModel):
-    email: str
+    # 254 chars is the RFC 5321 maximum length of an email address.
+    email: str = Field(max_length=254)
 
 
 def _set_session_cookie(response: Response, email: str) -> None:

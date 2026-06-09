@@ -13,7 +13,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from starlette.requests import Request
 
-from services.auth_service import SESSION_COOKIE
+from services.auth_service import SESSION_COOKIE, verify_session_token
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -23,6 +23,13 @@ limiter = Limiter(
 
 
 def session_key_func(request: Request) -> str:
-    """Rate-limit key for authenticated routes: the session cookie value, so the
-    quota is per user. Falls back to client IP if the cookie is absent."""
-    return request.cookies.get(SESSION_COOKIE) or get_remote_address(request)
+    """Rate-limit key for authenticated routes: the *verified email* inside the
+    session cookie, so the quota is per user identity. Keying on the raw cookie
+    value would let a user reset their quota by simply re-authenticating (each
+    new cookie is a new bucket). Falls back to client IP if the cookie is
+    missing or invalid (those requests 401 in the session dependency anyway)."""
+    token = request.cookies.get(SESSION_COOKIE)
+    session = verify_session_token(token) if token else None
+    if session:
+        return f"session:{session['email']}"
+    return get_remote_address(request)

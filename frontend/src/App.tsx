@@ -17,9 +17,12 @@ type AuthState = 'checking' | 'in' | 'out'
 // and the shared chat state. Pages render into <Outlet> and read chat via
 // useOutletContext<AppOutletContext>().
 export default function App() {
-  const { data, loading, error } = useResume()
   const location = useLocation()
   const [authState, setAuthState] = useState<AuthState>('checking')
+
+  // GET /api/resume requires a session, so only fetch once auth is confirmed —
+  // an earlier fetch would 401 and show a load error instead of the gate.
+  const { data, loading, error } = useResume(authState === 'in')
 
   // Re-show the gate if a session expires mid-use (chat 401).
   const handleUnauthorized = useCallback(() => setAuthState('out'), [])
@@ -61,6 +64,22 @@ export default function App() {
     chat.close()
   }, [location.pathname, chat.close])
 
+  if (authState === 'checking') {
+    return <FullScreenMessage>Loading…</FullScreenMessage>
+  }
+
+  // Unauthenticated with nothing loaded yet (first visit / expired cookie):
+  // just the gate. Once `data` exists (session expired mid-use), fall through
+  // so the app stays mounted and the gate overlays it instead.
+  if (authState === 'out' && !data) {
+    return (
+      <>
+        <BlobBackground />
+        <AuthGate />
+      </>
+    )
+  }
+
   if (loading) {
     return <FullScreenMessage>Loading…</FullScreenMessage>
   }
@@ -79,22 +98,15 @@ export default function App() {
 
       <Nav resume={data} />
 
-      {/* App content mounts once auth is known (no content flash during the
-          check) and stays mounted if the session later expires — the gate just
-          overlays on top rather than unmounting the router/pages. */}
-      {authState !== 'checking' && (
-        <>
-          <Outlet context={chat satisfies AppOutletContext} />
+      <Outlet context={chat satisfies AppOutletContext} />
 
-          <AgentDrawer
-            open={chat.isOpen}
-            messages={chat.messages}
-            isLoading={chat.isLoading}
-            onClose={chat.close}
-            onSubmit={chat.send}
-          />
-        </>
-      )}
+      <AgentDrawer
+        open={chat.isOpen}
+        messages={chat.messages}
+        isLoading={chat.isLoading}
+        onClose={chat.close}
+        onSubmit={chat.send}
+      />
 
       {authState === 'out' && <AuthGate />}
     </>

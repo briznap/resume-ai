@@ -21,6 +21,7 @@ export class ChatError extends Error {
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: 'application/json' },
+    credentials: 'include', // /api/resume is session-gated
   })
   if (!res.ok) {
     throw new Error(`Request to ${path} failed with status ${res.status}`)

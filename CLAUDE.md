@@ -28,8 +28,8 @@ GitHub repo: `https://github.com/briznap/resume-ai`
 | Icons | `react-icons` | GitHub / LinkedIn nav icons |
 | Backend | Python 3.12 + FastAPI | Agent proxy, resume API, security middleware |
 | AI Agent | Anthropic API — Claude Sonnet (`claude-sonnet-4-6`) | Backend-proxied, never client-side |
-| Auth | Custom magic link (built) | Email magic link → HMAC-signed, HttpOnly session cookie; allowlist-gated. Replaces the interim Pangolin proxy gate |
-| Rate limiting | slowapi | 30 chat msgs / 30 min per **session**; 5 link requests / 15 min per IP (429 + Retry-After) |
+| Auth | Custom allowlist sessions | Allowlist match → immediate HMAC-signed, HttpOnly session cookie (no email sent); 403 otherwise. Allowlist re-checked per request (instant revocation). Magic-link email flow retired |
+| Rate limiting | slowapi | 30 chat msgs / 30 min per **session email**; 5 auth requests / 15 min per IP (429 + Retry-After) |
 | Containers | Docker + Docker Compose | Two containers: frontend (Nginx), backend (uvicorn) |
 | Reverse proxy | Pangolin on VPS | Origin TLS termination; routes to the frontend container over an external `pangolin` Docker network |
 | API routing | Nginx (in the frontend container) | Proxies `/api/` and `/health` to the backend over the internal `app-network` |
@@ -168,41 +168,40 @@ Backend reads from `backend/.env` (gitignored). Use `backend/.env.example` as th
 | `AGENT_CONTEXT_PATH` | Optional path to agent-context.md (default `/app/agent-context.md` in Docker, `../agent-context.md` locally). If missing, the agent runs on resume data only. |
 | `ENVIRONMENT` | `development` or `production` (controls `/docs` exposure) |
 
-**Auth (magic link) — required in production:**
+**Auth — required in production:**
 
 | Variable | Description |
 |---|---|
-| `RESEND_API_KEY` | Resend API key for magic link email delivery |
-| `FROM_EMAIL` | Magic-link sender, e.g. `Brad Belnap <brad@naplab.org>` (must be a Resend-verified domain) |
-| `ALLOWED_EMAILS` | Comma-separated allowlist. Exact addresses (`brad@naplab.org`) and/or `@domain.com` wildcards; case-insensitive. Membership is never revealed to clients. |
-| `SESSION_SECRET` | 32-byte hex string for session cookie signing |
-| `HMAC_SECRET` | 32-byte hex string for magic link token hashing |
+| `ALLOWED_EMAILS` | Comma-separated allowlist. Exact addresses (`brad@naplab.org`) and/or `@domain.com` wildcards; case-insensitive. Re-checked on every authenticated request, so removing an entry revokes access instantly. |
+| `SESSION_SECRET` | 32-byte hex string for session cookie signing. **Validated at startup** — production refuses to boot if missing or < 32 chars. |
+| `HMAC_SECRET` | 32-byte hex string, originally for magic-link token hashing (flow now retired). Still validated at startup. |
 
 Generate the hex secrets with: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 
+**Email (optional — legacy):** `RESEND_API_KEY` and `FROM_EMAIL` are only needed if the magic-link email flow is ever re-enabled. The app starts and authenticates fine without them.
+
 ---
 
-## Security Requirements
+## Security Standards
 
-These are non-negotiable. Items marked Phase 2 are deferred but must be implemented before the app is shared with anyone.
+These standards are **implemented and non-negotiable**. Any future change must preserve every item below; when a new protection is added, extend this list. (Hardened June 2026 after a security audit — see "Current State" for the changelog.)
 
-**API key protection — Phase 1**
+**API key protection**
 - `ANTHROPIC_API_KEY` exists only in backend env. It must never appear in any frontend file, log, or HTTP response.
 - Frontend calls `POST /api/chat` on the backend. The backend calls Anthropic. Direct client→Anthropic calls are never acceptable.
 
-**Authentication — Phase 1**
-- Pangolin built-in auth gates the entire app at the proxy level during development.
-- The application itself has no auth code in Phase 1. This is intentional and temporary.
-- Do not add any auth code to the app until Phase 2.
+**Authentication — instant allowlist sessions**
+- Access is invitation-only. `POST /api/auth/request` validates the email format (max 254 chars, RFC 5321) and checks it against `ALLOWED_EMAILS` (exact addresses + `@domain` wildcards, case-insensitive). On a match it **immediately** sets the session cookie and returns `200 {"authenticated": true}`; otherwise `403` with a "contact Brad" message. No email is sent — the original magic-link email flow is retired (`email_service.py`, `GET /api/auth/verify`, and the token functions in `auth_service.py` are parked legacy code, deliberately unused).
+- Note: the 403-on-deny response means allowlist membership is observable. This is an accepted, deliberate trade-off of the instant-session design — do not re-add "enumeration protection" claims to docs or UI copy.
+- Session cookie: HMAC-SHA256-signed token carrying `{email, exp}`; `HttpOnly=True, Secure=True, SameSite=Strict, Max-Age=604800` (7 days). Only the backend ever sets it. Invalid/expired sessions get a bare `HTTP 401`, never a descriptive error.
+- **Instant revocation:** `get_current_session` (backend/dependencies.py) re-checks `is_email_allowed()` on every authenticated request. Removing an entry from `ALLOWED_EMAILS` cuts off existing sessions immediately — never remove this re-check (sessions are stateless 7-day tokens; without it, revocation would wait for cookie expiry).
+- **Fail-fast secrets:** `_validate_secrets()` in `main.py` runs at startup and requires `SESSION_SECRET` and `HMAC_SECRET` to be ≥ 32 chars. In production the app **refuses to start** if they're missing or short; in development it warns. Never weaken this — an unset `SESSION_SECRET` would silently sign cookies with an empty HMAC key, making sessions forgeable.
 
-**Authentication — Phase 2**
-- Magic link tokens: 32-byte random string, HMAC-SHA256 signed, stored hashed, expire in 15 minutes, deleted on first use (single-use)
-- Session cookie: `HttpOnly=True, Secure=True, SameSite=Strict, Max-Age=604800` (7 days)
-- Email enumeration protection: `POST /api/auth/request` always returns HTTP 200 regardless of whether the email is in `ALLOWED_EMAILS`
-- Invalid or expired tokens return `HTTP 401`, never a descriptive error message
-- Remove Pangolin auth gate for this app once application-level auth is live
+**Resume data is session-gated**
+- `GET /api/resume` and `POST /api/chat` both require a valid session via `Depends(get_current_session)`. Resume JSON contains personal contact info and must never be reachable unauthenticated. The frontend (`App.tsx` / `useResume`) checks auth **before** fetching the resume.
+- Accepted exception: the static PDF at `/brad-belnap-resume.pdf` is served publicly by Nginx. This is a known, accepted trade-off — the PDF is committed to the public GitHub repo, so gating the URL would add nothing.
 
-**Security headers — Phase 1 (every response, no exceptions)**
+**Security headers (every response, no exceptions)**
 ```
 Strict-Transport-Security: max-age=31536000; includeSubDomains
 Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'
@@ -212,20 +211,19 @@ Referrer-Policy: strict-origin-when-cross-origin
 Permissions-Policy: geolocation=(), microphone=(), camera=()
 ```
 
-**CORS — Phase 1**
-- Allow only the `FRONTEND_ORIGIN` env var value. No wildcards, ever.
+**CORS**
+- Allow only the `FRONTEND_ORIGIN` env var value. No wildcards, ever. `allow_credentials=True` because auth is cookie-based.
 
-**Rate limiting (current)**
-- `POST /api/chat`: 30 requests per 30-minute sliding window, keyed on the **session cookie** (per authenticated user)
+**Rate limiting**
+- `POST /api/chat`: 30 requests per 30-minute sliding window, keyed on the **verified email inside the session cookie** (`session_key_func` in `middleware/rate_limiter.py`) — never on the raw cookie value, because a fresh cookie would otherwise reset the quota (re-auth is instant, so users could mint new buckets at will).
 - `POST /api/auth/request`: 5 requests per 15 minutes per **client IP**
 - On breach: return `HTTP 429` with `Retry-After` header
 
-**Input validation — Phase 1 (before forwarding to Anthropic)**
-- Chat messages: max 1000 characters
-- Strip null bytes (`\x00`)
-- Reject if message contains obvious injection patterns: `[INST]`, `<|system|>`, `###System`, `ignore previous instructions`
+**Input validation (before anything reaches Anthropic)**
+- Chat messages: max 1000 characters, null bytes (`\x00`) stripped, rejected if they contain injection patterns: `[INST]`, `<|system|>`, `###System`, `ignore previous instructions`
+- Auth email: max 254 characters (Pydantic `Field(max_length=254)`), format-checked before the allowlist lookup
 
-**Docker — Phase 1**
+**Docker**
 - Backend container runs as non-root user
 - No privileged containers
 - Backend port not exposed to host in production (only Pangolin routes to it)
@@ -366,9 +364,9 @@ Phase 1 shipped with Pangolin handling auth at the proxy level; application-leve
 6. **Docker Compose** — frontend + backend containers, resume.json volume mount, networking
 7. **Deploy to VPS** — push to VPS, configure Pangolin routing, enable Pangolin auth gate
 
-### Phase 2 — Application-level magic-link auth (complete)
+### Phase 2 — Application-level magic-link auth (complete; flow since revised)
 
-These steps were additive — no Phase 1 code was rewritten.
+These steps were additive — no Phase 1 code was rewritten. (Historical record: the email-delivery step was later retired — access is now granted instantly on an allowlist match. See "Security Standards" and "Current State".)
 
 1. **Backend auth routes** — create `routers/auth.py` (`POST /api/auth/request`, `GET /api/auth/verify`), `services/auth_service.py`, `services/email_service.py`
 2. **Add session dependency** — add `Depends(get_current_session)` to `POST /api/chat` in `agent.py`
@@ -386,9 +384,14 @@ These steps were additive — no Phase 1 code was rewritten.
 
 **Phase 1 — product (done):** backend (security headers, rate limiter, `/health`, `/api/resume`), frontend (Vite + TS + Tailwind dark theme, Nav + Hero), scroll behavior (`useHeroIntersection`), agent endpoint + chat UI, all content sections (Experience, Skills, Projects, Education, UnderTheHood), Docker Compose, and VPS deploy behind Pangolin.
 
-**Phase 2 — magic-link auth (done):**
-- `POST /api/auth/request` (enumeration-safe, 5/15 min per IP), `GET /api/auth/verify` (sets the session cookie, redirects), `GET /api/auth/status` (frontend auth check). Tokens are 32-byte, HMAC-hashed at rest, single-use, 15-min TTL. Session is an HMAC-signed, HttpOnly / Secure / SameSite=Strict, 7-day cookie.
-- `/api/chat` requires a valid session (`get_current_session`) and is rate-limited **per session** (30 / 30 min). The frontend `AuthGate` overlays the app until authenticated and re-appears if a session expires mid-use.
+**Phase 2 — auth (done, since revised):** originally magic-link email auth; later simplified to **instant allowlist sessions** — `POST /api/auth/request` checks the allowlist and immediately sets the HMAC-signed, HttpOnly / Secure / SameSite=Strict 7-day session cookie (200) or returns 403. No email is sent; `email_service.py`, `GET /api/auth/verify`, and the magic-link token functions are parked legacy code. `GET /api/auth/status` is the frontend auth check. The frontend `AuthGate` overlays the app until authenticated and re-appears if a session expires mid-use.
+
+**Security hardening (June 2026 audit):**
+- `GET /api/resume` now requires a valid session (resume JSON holds personal contact info); the frontend checks auth before fetching (`useResume(enabled)` in `App.tsx`). The static PDF remains public by accepted trade-off (it's committed to the public repo).
+- Startup fails fast in production if `SESSION_SECRET`/`HMAC_SECRET` are missing or < 32 chars (`_validate_secrets()` in `main.py`).
+- The chat rate limit (30 / 30 min) keys on the **verified session email**, not the raw cookie, so re-authenticating can't reset the quota.
+- `get_current_session` re-checks the allowlist on every request — removing an `ALLOWED_EMAILS` entry revokes access instantly.
+- Auth request emails are capped at 254 chars at the Pydantic layer.
 
 **Beyond the original plan:** client-side routing (`/`, `/about`, `/under-the-hood`); About page; animated blob background; markdown-rendered replies; nav social icons + résumé PDF download; cycling typewriter placeholder + suggested-prompt chips; agent context file (`agent-context.md`) appended to the system prompt with `[BRAD: ...]` notes stripped at load.
 

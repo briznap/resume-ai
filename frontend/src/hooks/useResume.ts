@@ -31,13 +31,16 @@ export interface UseResumeResult {
   error: string | null
 }
 
-export function useResume(): UseResumeResult {
+/** Fetches the resume once `enabled` is true. GET /api/resume requires a valid
+ *  session, so App only enables this after the auth check passes — fetching
+ *  earlier would just 401. */
+export function useResume(enabled = true): UseResumeResult {
   const [data, setData] = useState<Resume | null>(cache)
   const [loading, setLoading] = useState(cache === null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (cache) return
+    if (!enabled || cache) return
     let active = true
     loadResume()
       .then((resume) => {
@@ -53,7 +56,7 @@ export function useResume(): UseResumeResult {
     return () => {
       active = false
     }
-  }, [])
+  }, [enabled])
 
   return { data, loading, error }
 }
