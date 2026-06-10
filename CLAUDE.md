@@ -48,6 +48,7 @@ resume-ai/
 ├── resume.json                      ← GITIGNORED — real resume data
 ├── resume.example.json              ← sanitized template, committed
 ├── agent-context.md                 ← GITIGNORED — free-form extra agent context; [BRAD: ...] author notes are stripped at load
+├── logs/                            ← GITIGNORED — structured JSON event log (visitor emails + chat text; rotated)
 │
 ├── frontend/
 │   ├── index.html
@@ -105,14 +106,16 @@ resume-ai/
 │   ├── requirements.txt
 │   ├── .env.example                 ← Template, committed. Actual .env is gitignored.
 │   ├── routers/
+│   │   ├── admin.py                 ← GET /api/admin/logs (X-Admin-Secret gated, last 100 events)
 │   │   ├── agent.py                 ← POST /api/chat (session-gated, input validation, per-session rate limit)
 │   │   ├── auth.py                  ← POST /api/auth/request, GET /api/auth/verify, GET /api/auth/status
-│   │   ├── resume.py                ← GET /api/resume (serves loaded resume.json)
+│   │   ├── resume.py                ← GET /api/resume (session-gated; serves loaded resume.json)
 │   │   └── health.py                ← GET /health
 │   ├── services/
 │   │   ├── agent_service.py         ← Anthropic proxy + system prompt (resume + agent-context.md)
 │   │   ├── auth_service.py          ← Magic-link tokens, email allowlist, signed session tokens
-│   │   └── email_service.py         ← Resend integration (magic-link email)
+│   │   ├── email_service.py         ← Resend integration (magic-link email; parked legacy)
+│   │   └── logging_service.py       ← Structured JSON event log (RotatingFileHandler, 10MB × 5)
 │   ├── middleware/
 │   │   ├── security_headers.py      ← Adds all security headers to every response
 │   │   └── rate_limiter.py          ← slowapi limiter; per-IP default + per-session key for chat
@@ -145,9 +148,11 @@ backend:
   environment:
     RESUME_PATH: /app/resume.json
     AGENT_CONTEXT_PATH: /app/agent-context.md
+    LOG_PATH: /app/logs/resume-ai.log
   volumes:
     - ../resume.json:/app/resume.json:ro
     - ../agent-context.md:/app/agent-context.md:ro
+    - ../logs:/app/logs        # writable — structured event log (uid 1001 must be able to write)
 ```
 
 **Agent context file:** `agent-context.md` (gitignored, project root) holds free-form extra context for the agent — anything not in the structured resume. At startup `agent_service.py` reads it, strips `[BRAD: ...]` author notes (`re.sub(r'\[BRAD:.*?\]', '', ...)`), and appends the result under `--- ADDITIONAL CONTEXT ---` in the system prompt. If the file is missing the agent still works on resume data alone.
@@ -179,6 +184,13 @@ Backend reads from `backend/.env` (gitignored). Use `backend/.env.example` as th
 Generate the hex secrets with: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 
 **Email (optional — legacy):** `RESEND_API_KEY` and `FROM_EMAIL` are only needed if the magic-link email flow is ever re-enabled. The app starts and authenticates fine without them.
+
+**Admin & logging:**
+
+| Variable | Description |
+|---|---|
+| `ADMIN_SECRET` | 32-byte hex string gating `GET /api/admin/logs` (sent as `X-Admin-Secret`). If unset, the endpoint is disabled (always 401). |
+| `LOG_PATH` | Structured JSON event log path (default `/app/logs/resume-ai.log` in Docker — pinned by compose; use `../logs/resume-ai.log` locally). Falls back to console logging if unwritable. |
 
 ---
 
@@ -222,6 +234,11 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 **Input validation (before anything reaches Anthropic)**
 - Chat messages: max 1000 characters, null bytes (`\x00`) stripped, rejected if they contain injection patterns: `[INST]`, `<|system|>`, `###System`, `ignore previous instructions`
 - Auth email: max 254 characters (Pydantic `Field(max_length=254)`), format-checked before the allowlist lookup
+
+**Structured event logging & admin access**
+- `services/logging_service.py` appends one JSON object per line (`ts` ISO 8601 UTC + `event` + event fields) to `LOG_PATH`, rotated at 10 MB × 5 backups. Events: `auth` (email + admitted/denied), `session_start` (email), `agent_query` (email + the message text already being sent to Anthropic).
+- **Never log secrets, API keys, or session token values.** The log does contain visitor emails and chat text — `logs/` is gitignored and must never be committed or served by any unauthenticated route.
+- `GET /api/admin/logs` (last 100 parsed events) is gated by the `X-Admin-Secret` header, compared in constant time (`hmac.compare_digest`) against `ADMIN_SECRET`. If `ADMIN_SECRET` is unset the endpoint is **disabled** (always 401) — an empty secret must never match. Rate-limited 10/min per IP. Failures return a bare 401.
 
 **Docker**
 - Backend container runs as non-root user

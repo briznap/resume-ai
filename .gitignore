@@ -46,3 +46,6 @@ desktop.ini
 *.swo
 *.sublime-project
 *.sublime-workspace
+
+# ── Logs (structured JSON event log — contains visitor emails + chat text) ──
+logs/

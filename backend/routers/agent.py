@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from dependencies import get_current_session
 from middleware.rate_limiter import limiter, session_key_func
 from models.agent import ChatRequest, ChatResponse, ChatTurn
+from services.logging_service import log_event
 
 logger = logging.getLogger("resume-ai")
 
@@ -91,6 +92,10 @@ async def chat(
     service = getattr(request.app.state, "agent_service", None)
     if service is None:
         raise HTTPException(status_code=503, detail="The assistant is not available.")
+
+    # Audit trail of what's being asked: the validated message text already
+    # being forwarded to Anthropic, tied to the authenticated user.
+    log_event("agent_query", email=session["email"], message=message)
 
     try:
         reply = await service.generate_reply(anthropic_messages)

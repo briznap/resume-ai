@@ -32,9 +32,14 @@ services:
     environment:
       RESUME_PATH: /app/resume.json
       AGENT_CONTEXT_PATH: /app/agent-context.md
+      LOG_PATH: /app/logs/resume-ai.log
     volumes:
       - ../resume.json:/app/resume.json:ro
       - ../agent-context.md:/app/agent-context.md:ro
+      # Writable (no :ro): structured JSON event log, rotated by the app.
+      # The container runs as uid 1001 — ../logs on the host must be writable
+      # by that uid or logging falls back to the console log.
+      - ../logs:/app/logs
     networks:
       - app-network
 
