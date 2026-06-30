@@ -49,3 +49,9 @@ desktop.ini
 
 # ── Logs (structured JSON event log — contains visitor emails + chat text) ──
 logs/
+
+# ── Sign-in tracking DB (SQLite — contains visitor emails; never commit) ──
+data/
+*.db
+*.db-wal
+*.db-shm

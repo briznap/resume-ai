@@ -33,6 +33,7 @@ services:
       RESUME_PATH: /app/resume.json
       AGENT_CONTEXT_PATH: /app/agent-context.md
       LOG_PATH: /app/logs/resume-ai.log
+      SIGNIN_DB_PATH: /app/data/signins.db
     volumes:
       - ../resume.json:/app/resume.json:ro
       - ../agent-context.md:/app/agent-context.md:ro
@@ -40,6 +41,10 @@ services:
       # The container runs as uid 1001 — ../logs on the host must be writable
       # by that uid or logging falls back to the console log.
       - ../logs:/app/logs
+      # Writable (no :ro): SQLite sign-in tracking DB (+ its -wal/-shm sidecars).
+      # Same uid 1001 caveat — ../data on the host must be writable by that uid,
+      # or sign-in DB writes are logged-and-skipped. Persists across rebuilds.
+      - ../data:/app/data
     networks:
       - app-network
 

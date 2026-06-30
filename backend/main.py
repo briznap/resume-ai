@@ -27,6 +27,7 @@ from middleware.rate_limiter import limiter
 from middleware.security_headers import SecurityHeadersMiddleware
 from routers import admin, agent, auth, health, resume
 from services.agent_service import AgentService
+from services.signin_store import init_store
 
 load_dotenv()
 
@@ -74,6 +75,14 @@ def _validate_secrets() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _validate_secrets()
+
+    # Sign-in tracking DB (additive to the JSON event log). Best-effort: a
+    # failure here is logged and must not prevent the app from serving.
+    try:
+        init_store()
+    except Exception:
+        logger.exception("Sign-in store init failed; sign-in DB writes may be skipped.")
+
     app.state.resume = _load_resume()
     if app.state.resume is None:
         logger.warning("Starting without resume data; /api/resume will return 503.")

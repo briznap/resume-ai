@@ -106,7 +106,7 @@ resume-ai/
 │   ├── requirements.txt
 │   ├── .env.example                 ← Template, committed. Actual .env is gitignored.
 │   ├── routers/
-│   │   ├── admin.py                 ← GET /api/admin/logs (X-Admin-Secret gated, last 100 events)
+│   │   ├── admin.py                 ← GET /api/admin/logs (X-Admin-Secret); GET /api/admin/signins[/count] (X-Admin-Key)
 │   │   ├── agent.py                 ← POST /api/chat (session-gated, input validation, per-session rate limit)
 │   │   ├── auth.py                  ← POST /api/auth/request, GET /api/auth/verify, GET /api/auth/status
 │   │   ├── resume.py                ← GET /api/resume (session-gated; serves loaded resume.json)
@@ -115,7 +115,8 @@ resume-ai/
 │   │   ├── agent_service.py         ← Anthropic proxy + system prompt (resume + agent-context.md)
 │   │   ├── auth_service.py          ← Magic-link tokens, email allowlist, signed session tokens
 │   │   ├── email_service.py         ← Resend integration (magic-link email; parked legacy)
-│   │   └── logging_service.py       ← Structured JSON event log (RotatingFileHandler, 10MB × 5)
+│   │   ├── logging_service.py       ← Structured JSON event log (RotatingFileHandler, 10MB × 5)
+│   │   └── signin_store.py          ← SQLite sign-in tracking DB (WAL); additive to the event log
 │   ├── middleware/
 │   │   ├── security_headers.py      ← Adds all security headers to every response
 │   │   └── rate_limiter.py          ← slowapi limiter; per-IP default + per-session key for chat
@@ -149,10 +150,12 @@ backend:
     RESUME_PATH: /app/resume.json
     AGENT_CONTEXT_PATH: /app/agent-context.md
     LOG_PATH: /app/logs/resume-ai.log
+    SIGNIN_DB_PATH: /app/data/signins.db
   volumes:
     - ../resume.json:/app/resume.json:ro
     - ../agent-context.md:/app/agent-context.md:ro
     - ../logs:/app/logs        # writable — structured event log (uid 1001 must be able to write)
+    - ../data:/app/data        # writable — SQLite sign-in DB + WAL sidecars (uid 1001 must be able to write)
 ```
 
 **Agent context file:** `agent-context.md` (gitignored, project root) holds free-form extra context for the agent — anything not in the structured resume. At startup `agent_service.py` reads it, strips `[BRAD: ...]` author notes (`re.sub(r'\[BRAD:.*?\]', '', ...)`), and appends the result under `--- ADDITIONAL CONTEXT ---` in the system prompt. If the file is missing the agent still works on resume data alone.
@@ -190,7 +193,10 @@ Generate the hex secrets with: `python3 -c "import secrets; print(secrets.token_
 | Variable | Description |
 |---|---|
 | `ADMIN_SECRET` | 32-byte hex string gating `GET /api/admin/logs` (sent as `X-Admin-Secret`). If unset, the endpoint is disabled (always 401). |
+| `ADMIN_API_KEY` | 32-byte hex string gating the sign-in query API `GET /api/admin/signins[/count]` (sent as `X-Admin-Key`). **Must be a different value than `ADMIN_SECRET` and the Pangolin header secret.** If unset, those endpoints are disabled (always 401). |
 | `LOG_PATH` | Structured JSON event log path (default `/app/logs/resume-ai.log` in Docker — pinned by compose; use `../logs/resume-ai.log` locally). Falls back to console logging if unwritable. |
+| `SIGNIN_DB_PATH` | SQLite sign-in tracking DB path (default `/app/data/signins.db` in Docker — pinned by compose, `../data` mounted as a writable volume; use `../data/signins.db` locally). If unwritable, DB writes are logged-and-skipped (the event log still records the attempt). |
+| `PROFILE_SLUG` | Optional. Value stored in the `signins.profile_slug` column (default `brad-belnap`). Forward-compat for a future multi-profile deployment. |
 
 ---
 
@@ -239,6 +245,12 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 - `services/logging_service.py` appends one JSON object per line (`ts` ISO 8601 UTC + `event` + event fields) to `LOG_PATH`, rotated at 10 MB × 5 backups. Events: `auth` (email + admitted/denied), `session_start` (email), `agent_query` (email + the message text already being sent to Anthropic).
 - **Never log secrets, API keys, or session token values.** The log does contain visitor emails and chat text — `logs/` is gitignored and must never be committed or served by any unauthenticated route.
 - `GET /api/admin/logs` (last 100 parsed events) is gated by the `X-Admin-Secret` header, compared in constant time (`hmac.compare_digest`) against `ADMIN_SECRET`. If `ADMIN_SECRET` is unset the endpoint is **disabled** (always 401) — an empty secret must never match. Rate-limited 10/min per IP. Failures return a bare 401.
+
+**Sign-in tracking DB & admin query API**
+- `services/signin_store.py` records **every** sign-in attempt (admitted *and* denied) as a row in a SQLite DB (`SIGNIN_DB_PATH`, WAL mode): `id, ts (ISO 8601 UTC), email, profile_slug, success`. The write happens in the same request as the existing `log_event("auth", …)` call in `auth.py` — it is **additive**, never a replacement; the JSON event log keeps writing exactly as before. `record_signin()` never raises: a DB error is logged and dropped so it can't turn a valid sign-in into a 500.
+- The DB file lives outside the repo on a writable volume (`../data:/app/data`), is **gitignored** (`data/`, `*.db*`), and persists across rebuilds. It holds visitor emails — never commit it or serve it via any unauthenticated route.
+- `GET /api/admin/signins` (filter: `email`, `days`, `limit`; most recent first) and `GET /api/admin/signins/count` (filter: `email`, `days`) are a **separate admin trust boundary** from recruiter auth — not reachable with allowlist/session-cookie credentials. They are gated at the app level by the `X-Admin-Key` header, constant-time-compared against `ADMIN_API_KEY`. Unset key → **disabled** (always 401, even with an empty header). Bare 401 on failure.
+- **Two independent admin layers, two distinct secrets.** In production Pangolin *also* enforces a static `X-Pangolin-Admin-Key` header on `/api/admin/*` at the proxy (configured in the Pangolin dashboard, not in code). That secret **must differ** from `ADMIN_API_KEY` — two layers using two secrets means one leaking doesn't compromise the other. Never collapse them into a single shared secret. The app code must not assume the admin routes are reachable without the Pangolin header; it only enforces its own `X-Admin-Key` layer.
 
 **Docker**
 - Backend container runs as non-root user

@@ -21,6 +21,7 @@ from middleware.rate_limiter import limiter
 from services import auth_service
 from services.auth_service import SESSION_COOKIE, SESSION_MAX_AGE
 from services.logging_service import log_event
+from services.signin_store import record_signin
 
 router = APIRouter()
 
@@ -53,11 +54,14 @@ async def request_access(request: Request, response: Response, body: AuthRequest
 
     if not (_EMAIL_RE.match(email) and auth_service.is_email_allowed(email)):
         log_event("auth", email=email, result="denied")
+        # Additive durable record of the attempt (the log line above is untouched).
+        record_signin(email=email, success=False)
         response.status_code = 403
         return {"message": "Access to this resume is invitation-only. Contact Brad directly."}
 
     # Allowlisted → authenticate immediately by setting the signed session cookie.
     log_event("auth", email=email, result="admitted")
+    record_signin(email=email, success=True)
     _set_session_cookie(response, email)
     return {"authenticated": True}
 
