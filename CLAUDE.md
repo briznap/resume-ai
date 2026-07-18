@@ -28,7 +28,7 @@ GitHub repo: `https://github.com/briznap/resume-ai`
 | Icons | `react-icons` | GitHub / LinkedIn nav icons |
 | Backend | Python 3.12 + FastAPI | Agent proxy, resume API, security middleware |
 | AI Agent | Anthropic API — Claude Sonnet (`claude-sonnet-4-6`) | Backend-proxied, never client-side |
-| Auth | Custom allowlist sessions | Allowlist match → immediate HMAC-signed, HttpOnly session cookie (no email sent); 403 otherwise. Allowlist re-checked per request (instant revocation). Magic-link email flow retired |
+| Auth | Magic-link email + allowlist sessions | Allowlist match → single-use magic link emailed (Resend); clicking it sets the HMAC-signed, HttpOnly session cookie. Generic 200 either way (no enumeration). Allowlist re-checked per request (instant revocation) |
 | Rate limiting | slowapi | 30 chat msgs / 30 min per **session email**; 5 auth requests / 15 min per IP (429 + Retry-After) |
 | Containers | Docker + Docker Compose | Two containers: frontend (Nginx), backend (uvicorn) |
 | Reverse proxy | Pangolin on VPS | Origin TLS termination; routes to the frontend container over an external `pangolin` Docker network |
@@ -114,7 +114,7 @@ resume-ai/
 │   ├── services/
 │   │   ├── agent_service.py         ← Anthropic proxy + system prompt (resume + agent-context.md)
 │   │   ├── auth_service.py          ← Magic-link tokens, email allowlist, signed session tokens
-│   │   ├── email_service.py         ← Resend integration (magic-link email; parked legacy)
+│   │   ├── email_service.py         ← Resend integration (sends the magic-link email)
 │   │   ├── logging_service.py       ← Structured JSON event log (RotatingFileHandler, 10MB × 5)
 │   │   └── signin_store.py          ← SQLite sign-in tracking DB (WAL); additive to the event log
 │   ├── middleware/
@@ -182,11 +182,11 @@ Backend reads from `backend/.env` (gitignored). Use `backend/.env.example` as th
 |---|---|
 | `ALLOWED_EMAILS` | Comma-separated allowlist. Exact addresses (`brad@naplab.org`) and/or `@domain.com` wildcards; case-insensitive. Re-checked on every authenticated request, so removing an entry revokes access instantly. |
 | `SESSION_SECRET` | 32-byte hex string for session cookie signing. **Validated at startup** — production refuses to boot if missing or < 32 chars. |
-| `HMAC_SECRET` | 32-byte hex string, originally for magic-link token hashing (flow now retired). Still validated at startup. |
+| `HMAC_SECRET` | 32-byte hex string for magic-link token hashing. Validated at startup like `SESSION_SECRET`. |
 
 Generate the hex secrets with: `python3 -c "import secrets; print(secrets.token_hex(32))"`
 
-**Email (optional — legacy):** `RESEND_API_KEY` and `FROM_EMAIL` are only needed if the magic-link email flow is ever re-enabled. The app starts and authenticates fine without them.
+**Email — required in production:** `RESEND_API_KEY` and `FROM_EMAIL` deliver the magic-link email via Resend. `FROM_EMAIL` must be an address on the Resend-verified (DMARC-aligned) domain. If unset the app still starts, but no links can be sent — send failures are logged while the API response stays generic.
 
 **Admin & logging:**
 
@@ -208,9 +208,10 @@ These standards are **implemented and non-negotiable**. Any future change must p
 - `ANTHROPIC_API_KEY` exists only in backend env. It must never appear in any frontend file, log, or HTTP response.
 - Frontend calls `POST /api/chat` on the backend. The backend calls Anthropic. Direct client→Anthropic calls are never acceptable.
 
-**Authentication — instant allowlist sessions**
-- Access is invitation-only. `POST /api/auth/request` validates the email format (max 254 chars, RFC 5321) and checks it against `ALLOWED_EMAILS` (exact addresses + `@domain` wildcards, case-insensitive). On a match it **immediately** sets the session cookie and returns `200 {"authenticated": true}`; otherwise `403` with a "contact Brad" message. No email is sent — the original magic-link email flow is retired (`email_service.py`, `GET /api/auth/verify`, and the token functions in `auth_service.py` are parked legacy code, deliberately unused).
-- Note: the 403-on-deny response means allowlist membership is observable. This is an accepted, deliberate trade-off of the instant-session design — do not re-add "enumeration protection" claims to docs or UI copy.
+**Authentication — magic-link email verification**
+- Access is invitation-only. `POST /api/auth/request` validates the email format (max 254 chars, RFC 5321) and checks it against `ALLOWED_EMAILS` (exact addresses + `@domain` wildcards, case-insensitive). On a match it issues a single-use magic-link token (15-min TTL, HMAC-hashed at rest — the raw token is never stored) and emails the link via Resend **as a background task**. It never sets a session cookie itself.
+- **Enumeration protection:** the response is an identical generic `200 {"message": "If your email is on the list, a link is on its way"}` whether or not the email is allowlisted, and the email send runs in the background so response *timing* doesn't leak membership either. Never branch the response body, status, or synchronous work on the allowlist result.
+- `GET /api/auth/verify?token=…` validates the token (exists, unexpired, unused → marked used), sets the session cookie, and 302-redirects to `/`. Any failure redirects to `/?auth_error=1` with no detail about *why* the token failed. The frontend `AuthGate` surfaces that flag as an expired/invalid-link message.
 - Session cookie: HMAC-SHA256-signed token carrying `{email, exp}`; `HttpOnly=True, Secure=True, SameSite=Strict, Max-Age=604800` (7 days). Only the backend ever sets it. Invalid/expired sessions get a bare `HTTP 401`, never a descriptive error.
 - **Instant revocation:** `get_current_session` (backend/dependencies.py) re-checks `is_email_allowed()` on every authenticated request. Removing an entry from `ALLOWED_EMAILS` cuts off existing sessions immediately — never remove this re-check (sessions are stateless 7-day tokens; without it, revocation would wait for cookie expiry).
 - **Fail-fast secrets:** `_validate_secrets()` in `main.py` runs at startup and requires `SESSION_SECRET` and `HMAC_SECRET` to be ≥ 32 chars. In production the app **refuses to start** if they're missing or short; in development it warns. Never weaken this — an unset `SESSION_SECRET` would silently sign cookies with an empty HMAC key, making sessions forgeable.
@@ -242,12 +243,12 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 - Auth email: max 254 characters (Pydantic `Field(max_length=254)`), format-checked before the allowlist lookup
 
 **Structured event logging & admin access**
-- `services/logging_service.py` appends one JSON object per line (`ts` ISO 8601 UTC + `event` + event fields) to `LOG_PATH`, rotated at 10 MB × 5 backups. Events: `auth` (email + admitted/denied), `session_start` (email), `agent_query` (email + the message text already being sent to Anthropic).
+- `services/logging_service.py` appends one JSON object per line (`ts` ISO 8601 UTC + `event` + event fields) to `LOG_PATH`, rotated at 10 MB × 5 backups. Events: `auth` (email + admitted/denied — the allowlist decision at link-request time; "admitted" means a magic link was issued, not that a session started), `session_start` (email — fires when the emailed link is verified and the cookie is set), `agent_query` (email + the message text already being sent to Anthropic).
 - **Never log secrets, API keys, or session token values.** The log does contain visitor emails and chat text — `logs/` is gitignored and must never be committed or served by any unauthenticated route.
 - `GET /api/admin/logs` (last 100 parsed events) is gated by the `X-Admin-Secret` header, compared in constant time (`hmac.compare_digest`) against `ADMIN_SECRET`. If `ADMIN_SECRET` is unset the endpoint is **disabled** (always 401) — an empty secret must never match. Rate-limited 10/min per IP. Failures return a bare 401.
 
 **Sign-in tracking DB & admin query API**
-- `services/signin_store.py` records **every** sign-in attempt (admitted *and* denied) as a row in a SQLite DB (`SIGNIN_DB_PATH`, WAL mode): `id, ts (ISO 8601 UTC), email, profile_slug, success`. The write happens in the same request as the existing `log_event("auth", …)` call in `auth.py` — it is **additive**, never a replacement; the JSON event log keeps writing exactly as before. `record_signin()` never raises: a DB error is logged and dropped so it can't turn a valid sign-in into a 500.
+- `services/signin_store.py` records **every** sign-in attempt (admitted *and* denied) as a row in a SQLite DB (`SIGNIN_DB_PATH`, WAL mode): `id, ts (ISO 8601 UTC), email, profile_slug, success`. The write happens in the same request as the existing `log_event("auth", …)` call in `auth.py` — it is **additive**, never a replacement; the JSON event log keeps writing exactly as before. `record_signin()` never raises: a DB error is logged and dropped so it can't turn a valid sign-in into a 500. Under the magic-link flow, `success=1` means the allowlist matched and a link was issued at request time; actual session establishment (the link click) appears in the event log as `session_start`.
 - The DB file lives outside the repo on a writable volume (`../data:/app/data`), is **gitignored** (`data/`, `*.db*`), and persists across rebuilds. It holds visitor emails — never commit it or serve it via any unauthenticated route.
 - `GET /api/admin/signins` (filter: `email`, `days`, `limit`; most recent first) and `GET /api/admin/signins/count` (filter: `email`, `days`) are a **separate admin trust boundary** from recruiter auth — not reachable with allowlist/session-cookie credentials. They are gated at the app level by the `X-Admin-Key` header, constant-time-compared against `ADMIN_API_KEY`. Unset key → **disabled** (always 401, even with an empty header). Bare 401 on failure.
 - **Current live state — single-layer (app-level only), by deliberate choice.** Admin auth is presently enforced *only* at the app level via `ADMIN_API_KEY` / `X-Admin-Key`. The proxy-level Pangolin header-auth layer for `/api/admin/*` is **disabled/bypassed on purpose** — a credential-scoping issue meant its header check didn't compose cleanly with the app-level key. This is a **known, intentional state, not an oversight**: do not "fix" it by re-enabling Pangolin header auth on these routes without first resolving that scoping issue and re-verifying the app-level key still works end-to-end. The app-level `X-Admin-Key` check is the sole enforced admin gate today, and it does not assume any upstream Pangolin header is present.
@@ -396,7 +397,7 @@ Phase 1 shipped with Pangolin handling auth at the proxy level; application-leve
 
 ### Phase 2 — Application-level magic-link auth (complete; flow since revised)
 
-These steps were additive — no Phase 1 code was rewritten. (Historical record: the email-delivery step was later retired — access is now granted instantly on an allowlist match. See "Security Standards" and "Current State".)
+These steps were additive — no Phase 1 code was rewritten. (Historical record: the email-delivery step was temporarily retired in favor of instant allowlist sessions, then **re-enabled in July 2026** once the sending domain's DMARC verification completed. See "Security Standards" and "Current State".)
 
 1. **Backend auth routes** — create `routers/auth.py` (`POST /api/auth/request`, `GET /api/auth/verify`), `services/auth_service.py`, `services/email_service.py`
 2. **Add session dependency** — add `Depends(get_current_session)` to `POST /api/chat` in `agent.py`
@@ -414,7 +415,7 @@ These steps were additive — no Phase 1 code was rewritten. (Historical record:
 
 **Phase 1 — product (done):** backend (security headers, rate limiter, `/health`, `/api/resume`), frontend (Vite + TS + Tailwind dark theme, Nav + Hero), scroll behavior (`useHeroIntersection`), agent endpoint + chat UI, all content sections (Experience, Skills, Projects, Education, UnderTheHood), Docker Compose, and VPS deploy behind Pangolin.
 
-**Phase 2 — auth (done, since revised):** originally magic-link email auth; later simplified to **instant allowlist sessions** — `POST /api/auth/request` checks the allowlist and immediately sets the HMAC-signed, HttpOnly / Secure / SameSite=Strict 7-day session cookie (200) or returns 403. No email is sent; `email_service.py`, `GET /api/auth/verify`, and the magic-link token functions are parked legacy code. `GET /api/auth/status` is the frontend auth check. The frontend `AuthGate` overlays the app until authenticated and re-appears if a session expires mid-use.
+**Phase 2 — auth (done; magic-link email verification live again as of July 2026):** `POST /api/auth/request` checks the allowlist and, on a match, emails a single-use magic link (15-min TTL) via Resend in a background task — always returning the same generic 200 so allowlist membership is never revealed. Clicking the link (`GET /api/auth/verify`) sets the HMAC-signed, HttpOnly / Secure / SameSite=Strict 7-day session cookie and redirects to `/`; failed verification redirects to `/?auth_error=1`. (The interim "instant allowlist sessions" simplification — cookie set directly on the request, 403 on deny — was retired when the sending domain's DMARC verification completed.) `GET /api/auth/status` is the frontend auth check. The frontend `AuthGate` is a two-step flow — email entry → "check your inbox" confirmation — surfaces `auth_error=1` as an expired/invalid-link message, overlays the app until authenticated, and re-appears if a session expires mid-use.
 
 **Security hardening (June 2026 audit):**
 - `GET /api/resume` now requires a valid session (resume JSON holds personal contact info); the frontend checks auth before fetching (`useResume(enabled)` in `App.tsx`). The static PDF remains public by accepted trade-off (it's committed to the public repo).
@@ -429,4 +430,4 @@ These steps were additive — no Phase 1 code was rewritten. (Historical record:
 
 **Architecture note:** `/api/` is proxied to the backend by **Nginx inside the frontend container** (`docker/nginx.conf`), not by Pangolin. Pangolin terminates origin TLS and routes to the frontend container over an external `pangolin` Docker network; the backend publishes no ports. `uvicorn` runs with `--proxy-headers --forwarded-allow-ips=*` so per-IP limits key on the real client IP forwarded by Nginx.
 
-**Auth:** application-level magic-link auth is now the access gate. The interim Pangolin built-in auth gate is no longer the app's access control — remove it if still enabled on the deployment.
+**Auth:** application-level magic-link email verification is the live access gate (re-enabled July 2026 — see Phase 2 above). The interim Pangolin built-in auth gate is no longer the app's access control — remove it if still enabled on the deployment.

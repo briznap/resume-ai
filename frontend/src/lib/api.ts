@@ -87,9 +87,10 @@ export interface AccessResult {
   status: number
 }
 
-/** Request access. 200 → authenticated (session cookie set); 403 → not on the
- *  allowlist. Returns the status so the caller can branch. */
-export async function requestAccess(email: string): Promise<AccessResult> {
+/** Request a magic link. Always 200 with a generic message whether or not the
+ *  email is allowlisted (no session cookie is set — the session starts when
+ *  the emailed link is clicked). 429 → rate limited. */
+export async function requestMagicLink(email: string): Promise<AccessResult> {
   let res: Response
   try {
     res = await fetch(`${API_BASE}/api/auth/request`, {
