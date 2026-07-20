@@ -1,18 +1,23 @@
-"""Resend integration — sends the magic-link email.
+"""Resend integration — magic-link email + access-request notifications.
 
 Config (RESEND_API_KEY, FROM_EMAIL) is read at call time so it's available
 after load_dotenv(). Failures are logged, not raised, so the request endpoint
 can keep its constant (enumeration-safe) response.
 """
 
+import html
 import logging
 import os
+from datetime import datetime, timezone
 
 import resend
 
 logger = logging.getLogger("resume-ai")
 
 SUBJECT = "Your access link to Brad Belnap's resume"
+
+# Where access-request notifications go — Brad, not a visitor.
+ACCESS_REQUEST_NOTIFY_TO = "belnapbrad@gmail.com"
 
 
 def _html_body(link: str) -> str:
@@ -86,3 +91,50 @@ def send_magic_link(to_email: str, link: str) -> None:
         )
     except Exception:
         logger.exception("Failed to send magic-link email via Resend")
+
+
+def send_access_request_notification(email: str, note: str | None) -> None:
+    """Notify Brad that a visitor requested access. Reply-To is set to the
+    requester so a direct reply reaches them. This is an internal notification,
+    not a visitor-facing email. Logs and returns on misconfig/error."""
+    api_key = os.getenv("RESEND_API_KEY")
+    from_email = os.getenv("FROM_EMAIL")
+    if not api_key or not from_email:
+        logger.error(
+            "Resend not configured (RESEND_API_KEY/FROM_EMAIL missing); "
+            "cannot send access-request notification."
+        )
+        return
+
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    text = (
+        "New resume access request\n\n"
+        f"Email: {email}\n"
+        f"Note: {note or '(none)'}\n"
+        f"Requested: {ts}\n\n"
+        "Reply to this email to respond directly.\n"
+    )
+    # User-supplied values are escaped — they land inside HTML.
+    html_note = html.escape(note) if note else "<em>(none)</em>"
+    html_body = (
+        "<p><strong>New resume access request</strong></p>"
+        f"<p>Email: {html.escape(email)}<br>"
+        f"Note: {html_note}<br>"
+        f"Requested: {ts}</p>"
+        "<p>Reply to this email to respond directly.</p>"
+    )
+
+    resend.api_key = api_key
+    try:
+        resend.Emails.send(
+            {
+                "from": from_email,
+                "to": [ACCESS_REQUEST_NOTIFY_TO],
+                "reply_to": [email],
+                "subject": f"Resume access request from {email}",
+                "html": html_body,
+                "text": text,
+            }
+        )
+    except Exception:
+        logger.exception("Failed to send access-request notification via Resend")

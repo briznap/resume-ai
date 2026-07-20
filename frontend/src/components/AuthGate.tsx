@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { requestMagicLink } from '../lib/api'
+import { requestAccess, requestMagicLink } from '../lib/api'
 
 // Full-screen, on-brand auth gate. Overlays the viewport (fixed inset-0,
 // z-100) so the app underneath stays mounted. Visual language matches the hero.
@@ -10,6 +10,11 @@ import { requestMagicLink } from '../lib/api'
 // cookie and redirects back to /, where the normal auth check admits them.
 // A failed verification redirects to /?auth_error=1, which this component
 // surfaces as an expired/invalid-link message on mount.
+//
+// Below the magic-link form sits a permanently visible "request an invite"
+// path (InviteSection) for visitors who aren't on the allowlist. It is fully
+// separate from the magic-link flow and never conditional on any auth
+// response — its visibility must not become a signal of allowlist membership.
 export function AuthGate() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'sent'>('idle')
   const [email, setEmail] = useState('')
@@ -71,6 +76,7 @@ export function AuthGate() {
         >
           Use a different email
         </button>
+        <InviteSection defaultEmail={email.trim()} />
       </div>
     )
   }
@@ -124,7 +130,111 @@ export function AuthGate() {
 
         {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
       </form>
+
+      <InviteSection defaultEmail={email.trim()} />
     </div>
+  )
+}
+
+// Always-visible invite path for visitors not on the allowlist. Independent of
+// the magic-link flow above — its rendering never depends on any response from
+// POST /api/auth/request.
+function InviteSection({ defaultEmail }: { defaultEmail?: string }) {
+  const [open, setOpen] = useState(false)
+  const [email, setEmail] = useState('')
+  const [note, setNote] = useState('')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'sent'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  const openForm = () => {
+    if (!email && defaultEmail) setEmail(defaultEmail)
+    setOpen(true)
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = email.trim()
+    if (!trimmed || status === 'loading') return
+    setStatus('loading')
+    setError(null)
+
+    const result = await requestAccess(trimmed, note.trim() || undefined)
+    if (result.ok) {
+      setStatus('sent')
+      return
+    }
+    if (result.status === 429) {
+      setError('Too many requests — please wait a few minutes and try again.')
+    } else if (result.status === 422) {
+      setError('Please enter a valid email address.')
+    } else {
+      setError('Something went wrong. Please try again.')
+    }
+    setStatus('idle')
+  }
+
+  if (status === 'sent') {
+    return (
+      <p className="mt-10 max-w-sm text-sm leading-relaxed text-text-secondary">
+        Request received — Brad will get back to you at{' '}
+        <span className="text-text-primary">{email.trim()}</span>.
+      </p>
+    )
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={openForm}
+        className="mt-10 text-sm text-text-secondary underline underline-offset-2 transition-colors hover:text-accent-light"
+      >
+        Don&rsquo;t have access? Request an invite
+      </button>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-10 w-full max-w-sm text-left">
+      <p className="text-sm text-text-secondary">
+        Request an invite — Brad reviews every request personally.
+      </p>
+      <div className="agent-bar mt-3 flex min-h-[44px] items-center gap-3 px-4 py-2">
+        <MailIcon className="h-5 w-5 shrink-0 text-accent-light" />
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@email.com"
+          autoComplete="email"
+          disabled={status === 'loading'}
+          aria-label="Email address for invite request"
+          className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
+        />
+      </div>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Optional note — who are you, and why are you interested?"
+        maxLength={500}
+        rows={3}
+        disabled={status === 'loading'}
+        aria-label="Optional note"
+        className="agent-bar mt-3 w-full resize-none px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
+      />
+      <button
+        type="submit"
+        disabled={status === 'loading' || email.trim().length === 0}
+        className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 text-sm font-medium text-text-primary transition-colors hover:border-accent-light disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {status === 'loading' ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+        ) : (
+          'Request invite'
+        )}
+      </button>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+    </form>
   )
 }
 

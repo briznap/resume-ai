@@ -13,9 +13,10 @@ request ever reaches this app. That layer uses a *different* secret value and is
 configured in the Pangolin dashboard, not here.
 
 Routes:
-  GET /api/admin/logs           — last 100 structured log events (X-Admin-Secret).
-  GET /api/admin/signins        — sign-in rows, filterable (X-Admin-Key).
-  GET /api/admin/signins/count  — aggregate sign-in count (X-Admin-Key).
+  GET /api/admin/logs            — last 100 structured log events (X-Admin-Secret).
+  GET /api/admin/signins         — sign-in rows, filterable (X-Admin-Key).
+  GET /api/admin/signins/count   — aggregate sign-in count (X-Admin-Key).
+  GET /api/admin/access-requests — invite requests, filterable (X-Admin-Key).
 """
 
 import hmac
@@ -24,6 +25,7 @@ import os
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 
 from middleware.rate_limiter import limiter
+from services.access_request_store import list_access_requests
 from services.logging_service import read_recent_events
 from services.signin_store import count_signins, query_signins
 
@@ -65,6 +67,22 @@ async def list_signins(
     """Sign-in attempts, most recent first. No filters + limit=1 answers "who
     signed in last"; email= answers "has user X signed in / their history"."""
     return query_signins(email=email, days=days, limit=limit)
+
+
+@router.get("/api/admin/access-requests")
+@limiter.limit("30/minute")
+async def list_access_request_rows(
+    request: Request,
+    response: Response,
+    email: str | None = Query(default=None, max_length=254),
+    days: int | None = Query(default=None, ge=1),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    _: None = Depends(require_admin_api_key),
+) -> list[dict]:
+    """Invite requests from non-allowlisted visitors, most recent first.
+    Repeat requests within 24h are deduped at write time, so each row is one
+    distinct ask."""
+    return list_access_requests(email=email, days=days, limit=limit)
 
 
 @router.get("/api/admin/signins/count")

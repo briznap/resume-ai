@@ -1,8 +1,9 @@
 """Magic-link auth endpoints (Phase 2).
 
-POST /api/auth/request — request a link (enumeration-safe, rate limited).
-GET  /api/auth/verify  — verify a token, set the session cookie, redirect.
-GET  /api/auth/status  — report current auth state (200 {email} / 401).
+POST /api/auth/request        — request a link (enumeration-safe, rate limited).
+GET  /api/auth/verify         — verify a token, set the session cookie, redirect.
+GET  /api/auth/status         — report current auth state (200 {email} / 401).
+POST /api/auth/request-access — ask Brad for an invite (no allowlist involved).
 
 The response to /api/auth/request is identical whether or not the email is on
 the allowlist — allowlist membership is never revealed (enumeration
@@ -13,13 +14,15 @@ leak membership either.
 import os
 import re
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from slowapi.util import get_remote_address
 
 from dependencies import get_current_session
 from middleware.rate_limiter import limiter
 from services import auth_service, email_service
+from services.access_request_store import record_access_request
 from services.auth_service import SESSION_COOKIE, SESSION_MAX_AGE
 from services.logging_service import log_event
 from services.signin_store import record_signin
@@ -36,6 +39,11 @@ _GENERIC_RESPONSE = {"message": "If your email is on the list, a link is on its 
 class AuthRequest(BaseModel):
     # 254 chars is the RFC 5321 maximum length of an email address.
     email: str = Field(max_length=254)
+
+
+class AccessRequestBody(BaseModel):
+    email: str = Field(max_length=254)
+    note: str | None = Field(default=None, max_length=500)
 
 
 def _set_session_cookie(response: Response, email: str) -> None:
@@ -77,6 +85,32 @@ async def request_access(
     background_tasks.add_task(email_service.send_magic_link, email, link)
 
     return _GENERIC_RESPONSE
+
+
+@router.post("/api/auth/request-access")
+@limiter.limit("5/15 minutes")  # per IP — same scheme as /api/auth/request
+async def request_invite(
+    request: Request,
+    response: Response,
+    body: AccessRequestBody,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Invite request from a visitor who isn't on the allowlist. Fully separate
+    from the magic-link path: no allowlist check, no token, no cookie — so it
+    can't become a signal of allowlist membership. Repeat requests from the
+    same email within 24h are deduped (same success response, no second
+    notification email)."""
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="Please enter a valid email address.")
+
+    note = body.note.strip() if body.note else None
+    is_new = record_access_request(email=email, note=note, ip_address=get_remote_address(request))
+    log_event("access_request", email=email, deduped=not is_new)
+    if is_new:
+        background_tasks.add_task(email_service.send_access_request_notification, email, note)
+
+    return {"message": "Thanks — you'll hear back soon"}
 
 
 @router.get("/api/auth/status")

@@ -104,3 +104,19 @@ export async function requestMagicLink(email: string): Promise<AccessResult> {
   }
   return { ok: res.ok, status: res.status }
 }
+
+/** Ask Brad for an invite (visitor not on the allowlist). Completely separate
+ *  from the magic-link path — no allowlist involved. 429 → rate limited. */
+export async function requestAccess(email: string, note?: string): Promise<AccessResult> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/auth/request-access`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ email, note: note || null }),
+    })
+  } catch {
+    return { ok: false, status: 0 }
+  }
+  return { ok: res.ok, status: res.status }
+}

@@ -26,6 +26,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from middleware.rate_limiter import limiter
 from middleware.security_headers import SecurityHeadersMiddleware
 from routers import admin, agent, auth, health, resume
+from services import access_request_store
 from services.agent_service import AgentService
 from services.signin_store import init_store
 
@@ -82,6 +83,11 @@ async def lifespan(app: FastAPI):
         init_store()
     except Exception:
         logger.exception("Sign-in store init failed; sign-in DB writes may be skipped.")
+    # Access-request table (same DB file). Same best-effort contract.
+    try:
+        access_request_store.init_store()
+    except Exception:
+        logger.exception("Access-request store init failed; writes may be skipped.")
 
     app.state.resume = _load_resume()
     if app.state.resume is None:

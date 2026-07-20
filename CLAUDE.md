@@ -33,7 +33,7 @@ GitHub repo: `https://github.com/briznap/resume-ai`
 | Containers | Docker + Docker Compose | Two containers: frontend (Nginx), backend (uvicorn) |
 | Reverse proxy | Pangolin on VPS | Origin TLS termination; routes to the frontend container over an external `pangolin` Docker network |
 | API routing | Nginx (in the frontend container) | Proxies `/api/` and `/health` to the backend over the internal `app-network` |
-| Email | Resend API | Magic-link delivery |
+| Email | Resend API | Magic-link delivery + access-request notifications to Brad |
 
 ---
 
@@ -94,7 +94,7 @@ resume-ai/
 │       │   ├── useTypingPlaceholder.ts ← Cycling typewriter placeholder (respects reduced motion)
 │       │   └── useResume.ts            ← Fetches and caches resume data from GET /api/resume
 │       ├── lib/
-│       │   ├── api.ts               ← fetchResume, sendChat, checkSession, requestMagicLink
+│       │   ├── api.ts               ← fetchResume, sendChat, checkSession, requestMagicLink, requestAccess
 │       │   └── prompts.ts           ← Suggested-prompt list (drawer chips + typewriter)
 │       └── types/
 │           ├── resume.ts            ← Types matching resume.json schema
@@ -106,9 +106,9 @@ resume-ai/
 │   ├── requirements.txt
 │   ├── .env.example                 ← Template, committed. Actual .env is gitignored.
 │   ├── routers/
-│   │   ├── admin.py                 ← GET /api/admin/logs (X-Admin-Secret); GET /api/admin/signins[/count] (X-Admin-Key)
+│   │   ├── admin.py                 ← GET /api/admin/logs (X-Admin-Secret); GET /api/admin/signins[/count] + /access-requests (X-Admin-Key)
 │   │   ├── agent.py                 ← POST /api/chat (session-gated, input validation, per-session rate limit)
-│   │   ├── auth.py                  ← POST /api/auth/request, GET /api/auth/verify, GET /api/auth/status
+│   │   ├── auth.py                  ← POST /api/auth/request, GET /api/auth/verify, GET /api/auth/status, POST /api/auth/request-access
 │   │   ├── resume.py                ← GET /api/resume (session-gated; serves loaded resume.json)
 │   │   └── health.py                ← GET /health
 │   ├── services/
@@ -116,7 +116,8 @@ resume-ai/
 │   │   ├── auth_service.py          ← Magic-link tokens, email allowlist, signed session tokens
 │   │   ├── email_service.py         ← Resend integration (sends the magic-link email)
 │   │   ├── logging_service.py       ← Structured JSON event log (RotatingFileHandler, 10MB × 5)
-│   │   └── signin_store.py          ← SQLite sign-in tracking DB (WAL); additive to the event log
+│   │   ├── signin_store.py          ← SQLite sign-in tracking DB (WAL); additive to the event log
+│   │   └── access_request_store.py  ← access_requests table (same SQLite DB); 24h dedup per email
 │   ├── middleware/
 │   │   ├── security_headers.py      ← Adds all security headers to every response
 │   │   └── rate_limiter.py          ← slowapi limiter; per-IP default + per-session key for chat
@@ -243,7 +244,7 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 - Auth email: max 254 characters (Pydantic `Field(max_length=254)`), format-checked before the allowlist lookup
 
 **Structured event logging & admin access**
-- `services/logging_service.py` appends one JSON object per line (`ts` ISO 8601 UTC + `event` + event fields) to `LOG_PATH`, rotated at 10 MB × 5 backups. Events: `auth` (email + admitted/denied — the allowlist decision at link-request time; "admitted" means a magic link was issued, not that a session started), `session_start` (email — fires when the emailed link is verified and the cookie is set), `agent_query` (email + the message text already being sent to Anthropic).
+- `services/logging_service.py` appends one JSON object per line (`ts` ISO 8601 UTC + `event` + event fields) to `LOG_PATH`, rotated at 10 MB × 5 backups. Events: `auth` (email + admitted/denied — the allowlist decision at link-request time; "admitted" means a magic link was issued, not that a session started), `session_start` (email — fires when the emailed link is verified and the cookie is set), `agent_query` (email + the message text already being sent to Anthropic), `access_request` (email + `deduped` flag — invite request from a non-allowlisted visitor).
 - **Never log secrets, API keys, or session token values.** The log does contain visitor emails and chat text — `logs/` is gitignored and must never be committed or served by any unauthenticated route.
 - `GET /api/admin/logs` (last 100 parsed events) is gated by the `X-Admin-Secret` header, compared in constant time (`hmac.compare_digest`) against `ADMIN_SECRET`. If `ADMIN_SECRET` is unset the endpoint is **disabled** (always 401) — an empty secret must never match. Rate-limited 10/min per IP. Failures return a bare 401.
 
@@ -253,6 +254,12 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 - `GET /api/admin/signins` (filter: `email`, `days`, `limit`; most recent first) and `GET /api/admin/signins/count` (filter: `email`, `days`) are a **separate admin trust boundary** from recruiter auth — not reachable with allowlist/session-cookie credentials. They are gated at the app level by the `X-Admin-Key` header, constant-time-compared against `ADMIN_API_KEY`. Unset key → **disabled** (always 401, even with an empty header). Bare 401 on failure.
 - **Current live state — single-layer (app-level only), by deliberate choice.** Admin auth is presently enforced *only* at the app level via `ADMIN_API_KEY` / `X-Admin-Key`. The proxy-level Pangolin header-auth layer for `/api/admin/*` is **disabled/bypassed on purpose** — a credential-scoping issue meant its header check didn't compose cleanly with the app-level key. This is a **known, intentional state, not an oversight**: do not "fix" it by re-enabling Pangolin header auth on these routes without first resolving that scoping issue and re-verifying the app-level key still works end-to-end. The app-level `X-Admin-Key` check is the sole enforced admin gate today, and it does not assume any upstream Pangolin header is present.
 - **Design intent (two-layer, currently parked):** the original design layered a static `X-Pangolin-Admin-Key` header at the Pangolin proxy *in addition to* `ADMIN_API_KEY`, using a **distinct** secret, so one leaking wouldn't compromise the other. If that layer is ever re-enabled, keep the two secrets different and never collapse them into one shared value. Until then, `.env.example` still documents the Pangolin secret for when it's reinstated.
+
+**Access requests (invite path for non-allowlisted visitors)**
+- `POST /api/auth/request-access` (`{email, note?}`; note capped at 500 chars, email at 254, both at the Pydantic layer) records the request via `services/access_request_store.py` — an `access_requests` table (`id, email, note, requested_at, ip_address`) in the **same** SQLite DB file as `signins` — and emails Brad a notification (Resend, background task, requester as `Reply-To`, sent to `belnapbrad@gmail.com`).
+- **Must never interact with or weaken the magic-link enumeration protection**: no allowlist check, no token, no cookie — the endpoint behaves identically for everyone, and the frontend "Request an invite" link is always visible, never conditional on any auth response. Response is a generic `200 {"message": "Thanks — you'll hear back soon"}` in all cases, including deduped repeats.
+- **24h dedup at write time:** a repeat request from the same email within 24 hours is *not recorded* (no duplicate row) and sends *no second notification* — the visitor still gets the same generic 200. `record_access_request()` never raises; on a DB error it returns False (fail-safe: skips the notification so an outage can't cause email spam, while the `access_request` event-log line still records the attempt).
+- Rate-limited 5 / 15 min per IP (same scheme as `/api/auth/request`, separate bucket). `GET /api/admin/access-requests` (filter: `email`, `days`, `limit`; most recent first) is gated by the same `X-Admin-Key` / `ADMIN_API_KEY` layer as the signins endpoints.
 
 **Docker**
 - Backend container runs as non-root user
@@ -425,6 +432,8 @@ These steps were additive — no Phase 1 code was rewritten. (Historical record:
 - Auth request emails are capped at 254 chars at the Pydantic layer.
 
 **Sign-in tracking (live):** every sign-in attempt (admitted *and* denied) is recorded to a SQLite DB (`services/signin_store.py`, WAL) in the same request as the existing `auth` event-log line — additive, not a replacement; the JSON event log is unchanged. The DB is on a writable `../data:/app/data` volume and persists across restarts/rebuilds. `GET /api/admin/signins` (filter `email`/`days`/`limit`) and `GET /api/admin/signins/count` (filter `email`/`days`) are verified working. Admin auth on these routes is **currently single-layer**: `ADMIN_API_KEY` via the `X-Admin-Key` header, enforced at the app. The Pangolin proxy-level header-auth layer for `/api/admin/*` is **deliberately disabled/bypassed** for now (credential-scoping issue — see Security Standards → "Sign-in tracking DB & admin query API"); this is a known, intentional state, not an oversight.
+
+**Access requests (live):** visitors not on the allowlist can ask for an invite — an always-visible "Request an invite" link in `AuthGate` reveals an email + optional-note form posting to `POST /api/auth/request-access`. Requests land in the `access_requests` table (same SQLite DB as `signins`, via `services/access_request_store.py`) and notify Brad by email (Reply-To = requester). Repeats within 24h are deduped (no new row, no second email, same generic 200). Queryable via `GET /api/admin/access-requests` (X-Admin-Key). Fully separate from the magic-link path — see Security Standards → "Access requests".
 
 **Beyond the original plan:** client-side routing (`/`, `/about`, `/under-the-hood`); About page; animated blob background; markdown-rendered replies; nav social icons + résumé PDF download; cycling typewriter placeholder + suggested-prompt chips; agent context file (`agent-context.md`) appended to the system prompt with `[BRAD: ...]` notes stripped at load.
 
