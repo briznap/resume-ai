@@ -1,0 +1,14 @@
+# Top-level backend dependencies — edit this file, then regenerate the fully
+# pinned requirements.txt (direct + transitive) from the repo root with:
+#
+#   docker run --rm -v "$PWD/backend:/w" -w /w python:3.12.15-slim \
+#     sh -c "pip install -q pip-tools && pip-compile --strip-extras --no-emit-index-url -o requirements.txt requirements.in"
+#
+# Compiling inside the same base image as docker/backend.Dockerfile resolves for
+# Linux / Python 3.12, matching production.
+fastapi==0.161.1
+uvicorn[standard]==0.54.0
+slowapi==0.1.10
+python-dotenv==1.2.4
+anthropic==0.42.0
+resend==2.50.0

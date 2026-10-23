@@ -11,7 +11,11 @@ class ChatTurn(BaseModel):
     """A single prior turn in the conversation, sent back for context."""
 
     role: Role
-    content: str
+    # Caps what a client can stuff into history (assistant turns get no other
+    # length check, and history is forwarded to Anthropic) — bounds API cost per
+    # request. Real replies are max_tokens=1024 (~4-5k chars), so 8000 is
+    # headroom; user turns are separately held to 1000 by the chat router.
+    content: str = Field(max_length=8000)
 
 
 class ChatRequest(BaseModel):

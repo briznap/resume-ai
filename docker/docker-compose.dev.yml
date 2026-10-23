@@ -3,12 +3,16 @@
 #
 # Frontend (Nginx) → http://localhost:3000  (test the full stack incl. /api proxy)
 # Backend (uvicorn) → http://localhost:8000  (direct access for debugging)
+#
+# Bound to 127.0.0.1, never 0.0.0.0: Docker's published ports bypass host
+# firewalls (ufw/iptables INPUT rules), so a bare "8000:8000" would expose the
+# backend — skipping Nginx — to the whole network. Never use this file on the VPS.
 
 services:
   frontend:
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
 
   backend:
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"

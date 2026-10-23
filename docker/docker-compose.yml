@@ -11,13 +11,22 @@ services:
       context: ..
       dockerfile: docker/frontend.Dockerfile
     restart: unless-stopped
-    # Publish on localhost only — Pangolin (on the host) proxies to this port.
-    # Not bound to 0.0.0.0, so it is not reachable publicly.
+    # No published ports: Pangolin reaches this container by name over the
+    # external `pangolin` Docker network. (docker-compose.dev.yml publishes
+    # ports for local testing only, bound to 127.0.0.1.)
+    environment:
+      # CIDR of the external `pangolin` network. Nginx trusts X-Forwarded-For
+      # only from this range (see docker/nginx.conf). Required — find it with:
+      #   docker network inspect pangolin -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+      # and set it in docker/.env (gitignored) or the shell environment.
+      PANGOLIN_SUBNET: ${PANGOLIN_SUBNET:?set PANGOLIN_SUBNET to the pangolin network CIDR}
     depends_on:
       - backend
     networks:
-      - app-network
-      - pangolin
+      app-network:
+        # Fixed address: the backend trusts X-Forwarded-For from this IP only.
+        ipv4_address: 10.213.47.2
+      pangolin: {}
 
   backend:
     build:
@@ -34,6 +43,9 @@ services:
       AGENT_CONTEXT_PATH: /app/agent-context.md
       LOG_PATH: /app/logs/resume-ai.log
       SIGNIN_DB_PATH: /app/data/signins.db
+      # uvicorn honors X-Forwarded-For only from the frontend (Nginx) container,
+      # which has already reduced it to the single real client IP.
+      FORWARDED_ALLOW_IPS: 10.213.47.2
     volumes:
       - ../resume.json:/app/resume.json:ro
       - ../agent-context.md:/app/agent-context.md:ro
@@ -51,5 +63,12 @@ services:
 networks:
   app-network:
     driver: bridge
+    # Pinned so the frontend can hold a fixed address (FORWARDED_ALLOW_IPS).
+    # Dynamic allocation (the backend) is confined to the upper half so it
+    # never collides with the frontend's static .2.
+    ipam:
+      config:
+        - subnet: 10.213.47.0/28
+          ip_range: 10.213.47.8/29
   pangolin:
     external: true

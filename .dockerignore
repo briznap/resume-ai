@@ -6,14 +6,20 @@
 **/*.pyc
 
 # Secrets & local data (provided at runtime via env_file / volume mounts)
-backend/.env
-.env
+**/.env
+**/.env.*
+!**/.env.example
 *.local
+resume.json
+agent-context.md
+logs
+data
+**/*.db*
 
 # VCS / tooling / OS
 .git
 .gitignore
 *.log
-.DS_Store
+**/.DS_Store
 .vscode
 .idea

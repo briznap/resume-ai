@@ -103,7 +103,8 @@ resume-ai/
 ├── backend/
 │   ├── main.py                      ← FastAPI app init, middleware, lifespan, router registration
 │   ├── dependencies.py              ← get_current_session (validates the signed session cookie)
-│   ├── requirements.txt
+│   ├── requirements.in              ← Top-level deps (edit this) + the pip-compile command
+│   ├── requirements.txt             ← Compiled, fully pinned lock (direct + transitive)
 │   ├── .env.example                 ← Template, committed. Actual .env is gitignored.
 │   ├── routers/
 │   │   ├── admin.py                 ← GET /api/admin/logs (X-Admin-Secret); GET /api/admin/signins[/count] + /access-requests (X-Admin-Key)
@@ -129,7 +130,8 @@ resume-ai/
     ├── docker-compose.dev.yml       ← Dev overrides (publish :3000 frontend / :8000 backend)
     ├── frontend.Dockerfile          ← Node 20 build → Nginx alpine serve
     ├── backend.Dockerfile           ← Python 3.12-slim, non-root appuser, uvicorn
-    └── nginx.conf                   ← SPA fallback + /api & /health proxy + asset caching
+    ├── nginx.conf                   ← Template (PANGOLIN_SUBNET): SPA fallback + /api & /health proxy + real-IP + asset caching
+    └── nginx-security-headers.conf  ← Security header set for nginx-served (static) responses
 ```
 
 ---
@@ -230,6 +232,7 @@ X-Content-Type-Options: nosniff
 Referrer-Policy: strict-origin-when-cross-origin
 Permissions-Policy: geolocation=(), microphone=(), camera=()
 ```
+- The backend stamps these on `/api/*` and `/health` (`middleware/security_headers.py`); Nginx stamps the identical set on the SPA shell and `/assets/` (`docker/nginx-security-headers.conf`, included per static location with `always`). Never add the Nginx set to the proxied locations — that duplicates every header. Keep the two copies in sync. Nginx runs with `server_tokens off`.
 
 **CORS**
 - Allow only the `FRONTEND_ORIGIN` env var value. No wildcards, ever. `allow_credentials=True` because auth is cookie-based.
@@ -238,9 +241,11 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 - `POST /api/chat`: 30 requests per 30-minute sliding window, keyed on the **verified email inside the session cookie** (`session_key_func` in `middleware/rate_limiter.py`) — never on the raw cookie value, because a fresh cookie would otherwise reset the quota (re-auth is instant, so users could mint new buckets at will).
 - `POST /api/auth/request`: 5 requests per 15 minutes per **client IP**
 - On breach: return `HTTP 429` with `Retry-After` header
+- **Client IP must not be spoofable.** Each hop trusts `X-Forwarded-For` only from the hop in front of it: Nginx accepts it only from `PANGOLIN_SUBNET` (`set_real_ip_from`) and takes only the **last** entry (`real_ip_recursive off` — the one Pangolin wrote), then **replaces** (not appends) XFF with that single IP toward the backend; uvicorn trusts XFF only from the frontend's fixed app-network address (`FORWARDED_ALLOW_IPS: 10.213.47.2` in compose). Never use `--forwarded-allow-ips "*"` or `$proxy_add_x_forwarded_for` — uvicorn would key limits on a client-supplied value, defeating every per-IP limit.
 
 **Input validation (before anything reaches Anthropic)**
 - Chat messages: max 1000 characters, null bytes (`\x00`) stripped, rejected if they contain injection patterns: `[INST]`, `<|system|>`, `###System`, `ignore previous instructions`
+- Chat history: each turn's `content` capped at 8000 chars (Pydantic, 422) and only the last 20 turns are forwarded — client-supplied assistant turns get no other check, so this cap is what bounds Anthropic input cost per request. `max_tokens` is fixed at 1024.
 - Auth email: max 254 characters (Pydantic `Field(max_length=254)`), format-checked before the allowlist lookup
 
 **Structured event logging & admin access**
@@ -264,7 +269,9 @@ Permissions-Policy: geolocation=(), microphone=(), camera=()
 **Docker**
 - Backend container runs as non-root user
 - No privileged containers
-- Backend port not exposed to host in production (only Pangolin routes to it)
+- No ports published in production: `docker-compose.yml` has no `ports:` at all — Pangolin reaches the frontend by container name over the external `pangolin` network, and the backend is reachable only from the frontend over `app-network`. The dev override publishes ports bound to `127.0.0.1` only (Docker-published ports bypass host firewalls); never use it on the VPS.
+- Base images pinned to exact tags (`python:3.12.15-slim`, `node:24.22.1-alpine`, `nginx:1.30.6-alpine`); Python deps fully pinned (direct + transitive) in `backend/requirements.txt`, compiled from `backend/requirements.in` (command in that file); frontend via the committed `package-lock.json` + `npm ci`.
+- `.dockerignore` excludes every `.env*` (except `.env.example`), resume/agent-context data, logs and DB files — secrets come from `env_file` at runtime, never baked into images.
 
 ---
 
@@ -437,6 +444,6 @@ These steps were additive — no Phase 1 code was rewritten. (Historical record:
 
 **Beyond the original plan:** client-side routing (`/`, `/about`, `/under-the-hood`); About page; animated blob background; markdown-rendered replies; nav social icons + résumé PDF download; cycling typewriter placeholder + suggested-prompt chips; agent context file (`agent-context.md`) appended to the system prompt with `[BRAD: ...]` notes stripped at load.
 
-**Architecture note:** `/api/` is proxied to the backend by **Nginx inside the frontend container** (`docker/nginx.conf`), not by Pangolin. Pangolin terminates origin TLS and routes to the frontend container over an external `pangolin` Docker network; the backend publishes no ports. `uvicorn` runs with `--proxy-headers --forwarded-allow-ips=*` so per-IP limits key on the real client IP forwarded by Nginx.
+**Architecture note:** `/api/` is proxied to the backend by **Nginx inside the frontend container** (`docker/nginx.conf`), not by Pangolin. Pangolin terminates origin TLS and routes to the frontend container over an external `pangolin` Docker network; the backend publishes no ports. `uvicorn` runs with `--proxy-headers`, trusting `X-Forwarded-For` only from the frontend container (`FORWARDED_ALLOW_IPS`), and Nginx resolves the real client IP from Pangolin's header (see Security Standards → Rate limiting). `docker compose up` requires `PANGOLIN_SUBNET` (the `pangolin` network's CIDR) in `docker/.env` or the shell.
 
 **Auth:** application-level magic-link email verification is the live access gate (re-enabled July 2026 — see Phase 2 above). The interim Pangolin built-in auth gate is no longer the app's access control — remove it if still enabled on the deployment.

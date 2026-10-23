@@ -7,10 +7,10 @@ env var is unset the route is disabled (always 401) — an empty configured
 secret must never match an empty header. Failures return a bare 401 with no
 detail about whether the route is disabled or the secret was simply wrong.
 
-Two-layer scheme (see CLAUDE.md → Security Standards): in production Pangolin
-ALSO enforces a static `X-Pangolin-Admin-Key` header at the proxy before a
-request ever reaches this app. That layer uses a *different* secret value and is
-configured in the Pangolin dashboard, not here.
+This app-level check is currently the *only* enforced admin gate: the Pangolin
+proxy-level `X-Pangolin-Admin-Key` layer is deliberately disabled (see CLAUDE.md
+→ Security Standards). If it is re-enabled it must use a *different* secret
+value, configured in the Pangolin dashboard, not here.
 
 Routes:
   GET /api/admin/logs            — last 100 structured log events (X-Admin-Secret).
